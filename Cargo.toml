@@ -1,0 +1,11 @@
+[package]
+name = "float-sim"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "float_sim"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+bitvec = "1.0"
