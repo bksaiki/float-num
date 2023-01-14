@@ -1,7 +1,7 @@
 use std::ops::ShlAssign;
 
-use bitvec::*;
 use bitvec::prelude::Lsb0;
+use bitvec::*;
 use num_bigint::*;
 use num_traits::cast::ToPrimitive;
 
@@ -218,6 +218,30 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
+    /// Returns true if this `Float` encodes a NaN.
+    pub fn is_zero(&self) -> bool {
+        match &self.num {
+            FloatNum::Number(_, e, c) => *e == 0 && c.not_any(),
+            _ => false,
+        }
+    }
+
+    /// Returns true if this `Float` encodes a subnormal number
+    pub fn is_subnormal(&self) -> bool {
+        match &self.num {
+            FloatNum::Number(_, e, _) => *e != 0 && *e < Self::emin(),
+            _ => false,
+        }
+    }
+
+    /// Returns true if this `Float` encodes a normal number
+    pub fn is_normal(&self) -> bool {
+        match &self.num {
+            FloatNum::Number(_, e, _) => *e >= Self::emin(),
+            _ => false,
+        }
+    }
+
     /// Returns true if this `Float` encodes an infinity.
     pub fn is_infinity(&self) -> bool {
         matches!(self.num, FloatNum::Infinity(_))
@@ -231,7 +255,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a signaling NaN.
     /// The result is wrapped in an option since only NaNs
     /// can be signaling.
-    pub fn is_signaling(&self) -> Option<bool> {
+    pub fn is_signaling_nan(&self) -> Option<bool> {
         match self.num {
             FloatNum::Nan(_, signal, _) => Some(signal),
             _ => None,
@@ -257,31 +281,31 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if the `invalid` flag was raised
     /// during the operation that created this `Float`.
     pub fn invalid_flag(&self) -> bool {
-        return self.flags.invalid;
+        self.flags.invalid
     }
 
     /// Returns true if the `div_by_zero` flag was raised
     /// during the operation that created this `Float`.
     pub fn div_by_zero_flag(&self) -> bool {
-        return self.flags.div_by_zero;
+        self.flags.div_by_zero
     }
 
     /// Returns true if the `overflow` flag was raised
     /// during the operation that created this `Float`.
     pub fn overflow_flag(&self) -> bool {
-        return self.flags.overflow;
+        self.flags.overflow
     }
 
     /// Returns true if the `underflow` flag was raised
     /// during the operation that created this `Float`.
     pub fn underflow_flag(&self) -> bool {
-        return self.flags.underflow;
+        self.flags.underflow
     }
 
     /// Returns true if the `inexact` flag was raised
     /// during the operation that created this `Float`.
     pub fn inexact_flag(&self) -> bool {
-        return self.flags.inexact;
+        self.flags.inexact
     }
 }
 
@@ -299,28 +323,32 @@ impl<const E: usize, const N: usize> Float<E, N> {
     // Does not check if `bv` has the correct number of bits.
     #[inline]
     fn split_packed(bv: &BitVec) -> (bool, BitVec, BitVec) {
-        (Self::packed_sign(bv), Self::packed_exponent(bv), Self::packed_mantissa(bv))
+        (
+            Self::packed_sign(bv),
+            Self::packed_exponent(bv),
+            Self::packed_mantissa(bv),
+        )
     }
 
     // Returns the sign field from a packed floating-point representation.
     // Does not check if `bv` has the correct number of bits.
     #[inline]
     fn packed_sign(bv: &BitVec) -> bool {
-        bv[N-1]
+        bv[N - 1]
     }
 
     // Returns the exponent field from a packed floating-point representation.
     // Does not check if `bv` has the correct number of bits.
     #[inline]
     fn packed_exponent(bv: &BitVec) -> BitVec {
-        BitVec::from(&bv[(N - E - 1) .. (N - 1)])
+        BitVec::from(&bv[(N - E - 1)..(N - 1)])
     }
 
     // Returns the mantissa field from a packed floating-point representation.
     // Does not check if `bv` has the correct number of bits.
     #[inline]
     fn packed_mantissa(bv: &BitVec) -> BitVec {
-        BitVec::from(&bv[.. (N - E - 1)])
+        BitVec::from(&bv[..(N - E - 1)])
     }
 }
 
@@ -347,7 +375,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
                 Self::infinity(s)
             } else {
                 // NaN
-                Self::nan(s, m[N - E - 2], BitVec::from(&m[.. N - E - 2]))
+                Self::nan(s, m[N - E - 2], BitVec::from(&m[..N - E - 2]))
             }
         } else if exponent < Self::emin() {
             // subnormal or zero
@@ -358,7 +386,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
                 // subnormal
                 let exp_diff = 1 + m.trailing_zeros();
                 m.shift_right(exp_diff);
-                exponent = exponent - (exp_diff as i64);
+                exponent -= exp_diff as i64;
                 Self {
                     num: FloatNum::Number(s, exponent, m),
                     flags: Exceptions::default(),
