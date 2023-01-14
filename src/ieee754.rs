@@ -336,10 +336,11 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
             bv.len()
         );
 
+        // split fields
         let (s, e, mut m) = Self::split_packed(&bv);
         let mut exponent = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
-        // let mut mantissa = bitvec_to_biguint(m);
 
+        // branch on exponent
         if exponent > Self::emax() {
             if m.not_any() {
                 // infinity
@@ -355,7 +356,13 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
                 Self::zero(s)
             } else {
                 // subnormal
-                Self::default()
+                let exp_diff = 1 + m.trailing_zeros();
+                m.shift_right(exp_diff);
+                exponent = exponent - (exp_diff as i64);
+                Self {
+                    num: FloatNum::Number(s, exponent, m),
+                    flags: Exceptions::default(),
+                }
             }
         } else {
             // normal

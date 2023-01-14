@@ -63,6 +63,20 @@ fn from_f64() {
     assert_eq!(bv.exponent().unwrap(), -1022, "conversion from f64 failed (exponent): {:.20e}", fp); 
     assert!(bv.significand().unwrap()[.. 52].not_any(), "conversion from f64 failed (mantissa): {:.20e}", fp);
 
+    let fp = f64::from_bits(0xF_FFFF_FFFF_FFFF);
+    let bv = Double::from(fp);
+    assert!(!bv.is_infinity() && !bv.is_nan(), "conversion from f64 failed (class): {:.20e}", fp);
+    assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
+    assert_eq!(bv.exponent().unwrap(), -1024, "conversion from f64 failed (exponent): {:.20e}", fp); 
+    assert!(bv.significand().unwrap()[1 .. 52].all(), "conversion from f64 failed (mantissa): {:.20e}", fp);
+
+    let fp = f64::from_bits(0x1);
+    let bv = Double::from(fp);
+    assert!(!bv.is_infinity() && !bv.is_nan(), "conversion from f64 failed (class): {:.20e}", fp);
+    assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
+    assert_eq!(bv.exponent().unwrap(), -1075, "conversion from f64 failed (exponent): {:.20e}", fp); 
+    assert!(bv.significand().unwrap()[1 .. 52].not_any(), "conversion from f64 failed (mantissa): {:.20e}", fp);
+
     let fp = f64::MAX;
     let bv = Double::from(fp);
     assert!(!bv.is_infinity() && !bv.is_nan(), "conversion from f64 failed (class): {:.20e}", fp);
