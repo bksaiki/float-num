@@ -1,4 +1,4 @@
-use bitvec::{*, vec::BitVec};
+use bitvec::{vec::BitVec, *};
 
 /// Alias for `Float<15, 128>` (quad-precision number)
 pub type Quad = Float<15, 128>;
@@ -10,16 +10,16 @@ pub type Single = Float<8, 32>;
 pub type Half = Float<5, 16>;
 
 /** A floating-point number as specified by the IEEE-754 standard.
- * 
+ *
  * The generics `E` and `N` specify the number of bits in the
  * exponent field and in the entire float overall.
- * 
+ *
  */
 #[derive(Clone)]
 pub struct Float<const E: usize, const N: usize> {
     // numerical data
     s: bool,
-    exp: usize,
+    exp: i64,
     c: BitVec,
 
     // class info
@@ -31,6 +31,7 @@ pub struct Float<const E: usize, const N: usize> {
     nan_payload: BitVec,
 }
 
+// Constructors and getters
 impl<const E: usize, const N: usize> Float<E, N> {
     /// Creates a new `Float` with `E` exponent bits and `N` total bits.
     /// Initializes the `Float` to 0.
@@ -62,6 +63,27 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
+    /// Returns an NaN value based on the specified sign, signaling status
+    /// and payload using the same width parameters as this `Float`.
+    #[inline]
+    pub fn nan(sign: bool, signaling: bool, payload: BitVec) -> Self {
+        assert!(
+            payload.len() == Self::nan_payload_size(),
+            "expected a payload size of {}, received {}",
+            Self::nan_payload_size(),
+            payload.len()
+        );
+        Self {
+            s: sign,
+            exp: 0,
+            c: bitvec![0; Self::prec()],
+            inf: false,
+            nan: true,
+            signaling_nan: signaling,
+            nan_payload: payload,
+        }
+    }
+
     /// Returns the sign of this `Float`.
     #[inline]
     pub fn sign(&self) -> bool {
@@ -70,7 +92,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
     /// Returns the exponent of this `Float`.
     #[inline]
-    pub fn exponent(&self) -> usize {
+    pub fn exponent(&self) -> i64 {
         self.exp
     }
 
@@ -103,6 +125,21 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn nan_payload(&self) -> BitVec {
         self.nan_payload.clone()
     }
+}
+
+// Parameters
+impl<const E: usize, const N: usize> Float<E, N> {
+    /// Returns the width of the exponent field for this `Float`.
+    #[inline(always)]
+    pub const fn exponent_size() -> usize {
+        E
+    }
+
+    /// Returns the bitwidth for this `Float`.
+    #[inline(always)]
+    pub const fn total_size() -> usize {
+        N
+    }
 
     /// Returns the radix of this `Float`, in this case, 2.
     #[inline(always)]
@@ -113,20 +150,20 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns the number of (binary digits) in the signficand for this `Float`.
     /// This is just `Self::mantissa_size() + 1`.
     #[inline(always)]
-    const fn prec() -> usize {
+    pub const fn prec() -> usize {
         N - E
     }
 
     /// Returns maximum exponent value of this `Float` when in normalized form.
     #[inline(always)]
-    pub const fn emax() -> usize {
-        usize::pow(2, E as u32) - 1
+    pub const fn emax() -> i64 {
+        i64::pow(2, (E - 1) as u32) - 1
     }
 
     /// Returns minimum exponent value of this `Float` when in normalized form.
     /// This will always be `1 - Self::emax()`.
     #[inline(always)]
-    pub const fn emin() -> usize {
+    pub const fn emin() -> i64 {
         1 - Self::emax()
     }
 
@@ -140,5 +177,11 @@ impl<const E: usize, const N: usize> Float<E, N> {
     #[inline(always)]
     pub const fn nan_payload_size() -> usize {
         N - E - 3
+    }
+}
+
+impl<const E: usize, const N: usize> Default for Float<E, N> {
+    fn default() -> Self {
+        Self::new()
     }
 }
