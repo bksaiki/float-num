@@ -9,3 +9,5 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 bitvec = "1.0"
+num-bigint = "0.4.3"
+num-traits = "0.2.11"
