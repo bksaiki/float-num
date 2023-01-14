@@ -9,63 +9,73 @@ pub type Single = Float<8, 32>;
 /// Alias for `Float<5, 16>` (half-precision number)
 pub type Half = Float<5, 16>;
 
+// Minimal floating-point encoding grouped by classification
+enum FloatNum {
+    Number(bool, i64, BitVec), // signed zero or finite number => (sign, exponent, mantissa)
+    Infinity(bool),            // infinity (+/-)               => (sign)
+    Nan(bool, bool, BitVec),   // not-a-number                 => (sign, signalling, payload)
+}
+
+/** Exception flags as specified by the IEEE-754 standard.
+ *
+ * Besides returning a (possibly) numerical result, any computation with
+ * floating-point numbers may also raise exceptions depending on certain conditions.
+ * These exceptions include:
+ *
+ *  - invalid: no useful definable result;
+ *  - division by zero: an infinite result for finite arguments;
+ *  - overflow: result exceeded in magnitude what would have been the rounded result
+ *      had the exponent range been unbounded;
+ *  - underflow: non-zero result that either (a) would lie strictly between
+ *      `-b^emin` and `+b^emin` had the exponent range been unbounded,
+ *      or (b) would lie strictly between `-b^emin` and `+b^emin`
+ *      had the exponent range and precision been unbounded;
+ *  - inexact: result would be different had both the exponent range and precision been unbounded.
+ *
+ */
+#[derive(Copy, Clone, Default)]
+pub struct Exceptions {
+    invalid: bool,
+    div_by_zero: bool,
+    overflow: bool,
+    underflow: bool,
+    inexact: bool,
+}
+
 /** A floating-point number as specified by the IEEE-754 standard.
  *
  * The generics `E` and `N` specify the number of bits in the
  * exponent field and in the entire float overall.
  *
  */
-#[derive(Clone)]
 pub struct Float<const E: usize, const N: usize> {
-    // numerical data
-    s: bool,
-    exp: i64,
-    c: BitVec,
-
-    // class info
-    inf: bool,
-    nan: bool,
-
-    // NaN data
-    signaling_nan: bool,
-    nan_payload: BitVec,
+    num: FloatNum,      // number encoding
+    flags: Exceptions   // exceptions
 }
 
 // Constructors and getters
 impl<const E: usize, const N: usize> Float<E, N> {
     /// Creates a new `Float` with `E` exponent bits and `N` total bits.
-    /// Initializes the `Float` to 0.
+    /// Initializes the `Float` to +0.
     pub fn new() -> Self {
         assert!((2 <= E) && (E <= 60));
         Self {
-            s: false,
-            exp: 0,
-            c: bitvec![0; Self::prec()],
-            inf: false,
-            nan: false,
-            signaling_nan: false,
-            nan_payload: bitvec![0; Self::nan_payload_size()],
+            num: FloatNum::Number(false, 0, bitvec![0; Self::prec()]),
+            flags: Exceptions::default(),
         }
     }
 
     /// Returns an infinity value with a particular sign
     /// using the same width parameters as this `Float`.
-    #[inline]
     pub fn infinity(sign: bool) -> Self {
         Self {
-            s: sign,
-            exp: 0,
-            c: bitvec![0; Self::prec()],
-            inf: true,
-            nan: false,
-            signaling_nan: false,
-            nan_payload: bitvec![0; Self::nan_payload_size()],
+            num: FloatNum::Infinity(sign),
+            flags: Exceptions::default(),
         }
     }
 
     /// Returns an NaN value based on the specified sign, signaling status
     /// and payload using the same width parameters as this `Float`.
-    #[inline]
     pub fn nan(sign: bool, signaling: bool, payload: BitVec) -> Self {
         assert!(
             payload.len() == Self::nan_payload_size(),
@@ -74,56 +84,104 @@ impl<const E: usize, const N: usize> Float<E, N> {
             payload.len()
         );
         Self {
-            s: sign,
-            exp: 0,
-            c: bitvec![0; Self::prec()],
-            inf: false,
-            nan: true,
-            signaling_nan: signaling,
-            nan_payload: payload,
+            num: FloatNum::Nan(sign, signaling, payload),
+            flags: Exceptions::default(),
         }
     }
 
     /// Returns the sign of this `Float`.
-    #[inline]
     pub fn sign(&self) -> bool {
-        self.s
+        match self.num {
+            FloatNum::Number(s, _, _) => s,
+            FloatNum::Infinity(s) => s,
+            FloatNum::Nan(s, _, _) => s,
+        }
     }
 
     /// Returns the exponent of this `Float`.
-    #[inline]
-    pub fn exponent(&self) -> i64 {
-        self.exp
+    /// The result is wrapped in an option since only finite
+    /// numbers have a valid exponent.
+    pub fn exponent(&self) -> Option<i64> {
+        match self.num {
+            FloatNum::Number(_, exp, _) => Some(exp),
+            _ => None,
+        }
     }
 
     /// Returns the (integer) mantissa of this `Float` as a `Bitvec`.
-    #[inline]
-    pub fn significand(&self) -> BitVec {
-        self.c.clone()
+    /// The result is wrapped in an option since only finite numbers
+    /// have a valid exponent.
+    pub fn significand(&self) -> Option<BitVec> {
+        match &self.num {
+            FloatNum::Number(_, _, c) => Some(c.clone()),
+            _ => None,
+        }
     }
 
     /// Returns true if this `Float` encodes an infinity.
-    #[inline]
     pub fn is_inf(&self) -> bool {
-        self.inf
+        matches!(self.num, FloatNum::Infinity(_))
     }
 
     /// Returns true if this `Float` encodes a NaN.
-    #[inline]
     pub fn is_nan(&self) -> bool {
-        self.nan
+        matches!(self.num, FloatNum::Nan(_, _, _))
     }
 
     /// Returns true if this `Float` encodes a signaling NaN.
-    #[inline]
-    pub fn is_signaling(&self) -> bool {
-        self.signaling_nan
+    /// The result is wrapped in an option since only NaNs
+    /// can be signaling.
+    pub fn is_signaling(&self) -> Option<bool> {
+        match self.num {
+            FloatNum::Nan(_, signal, _) => Some(signal),
+            _ => None,
+        }
     }
 
     /// Returns the NaN payload of this `Float` as a `Bitvec`.
-    #[inline]
-    pub fn nan_payload(&self) -> BitVec {
-        self.nan_payload.clone()
+    /// The result is wrapped in an option since only a NaN
+    /// has a payload.
+    pub fn nan_payload(&self) -> Option<BitVec> {
+        match &self.num {
+            FloatNum::Nan(_, _, payload) => Some(payload.clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns the state of all flags raised during
+    /// the operation that created this `Float`.
+    pub fn flags(&self) -> Exceptions {
+        self.flags
+    }
+
+    /// Returns true if the `invalid` flag was raised
+    /// during the operation that created this `Float`.
+    pub fn invalid_flag(&self) -> bool {
+        return self.flags.invalid;
+    }
+
+    /// Returns true if the `div_by_zero` flag was raised
+    /// during the operation that created this `Float`.
+    pub fn div_by_zero_flag(&self) -> bool {
+        return self.flags.div_by_zero;
+    }
+
+    /// Returns true if the `overflow` flag was raised
+    /// during the operation that created this `Float`.
+    pub fn overflow_flag(&self) -> bool {
+        return self.flags.overflow;
+    }
+
+    /// Returns true if the `underflow` flag was raised
+    /// during the operation that created this `Float`.
+    pub fn underflow_flag(&self) -> bool {
+        return self.flags.underflow;
+    }
+    
+    /// Returns true if the `inexact` flag was raised
+    /// during the operation that created this `Float`.
+    pub fn inexact_flag(&self) -> bool {
+        return self.flags.inexact;
     }
 }
 
