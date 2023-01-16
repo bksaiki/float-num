@@ -130,31 +130,39 @@ pub struct Float<const E: usize, const N: usize> {
 
 // Format parameters
 impl<const E: usize, const N: usize> Float<E, N> {
-    /// Bitwidth of the representation
+    /// Bitwidth of the representation.
     pub const N: usize = N;
-    /// Bitwidth of the exponent field
+
+    /// Bitwidth of the exponent field.
     pub const E: usize = E;
-    /// Radix, in this case, 2
+
+    /// Radix, in this case, 2.
     pub const B: usize = 2;
-    /// Number of (binary) digits in the signficand.
-    /// This is just `Self::M + 1`.
+
+    /// Number of (binary) digits when the significand is expressed
+    /// as an integer. This is just `Self::M + 1`.
     pub const PREC: usize = N - E;
-    /// Bitwidth of the mantissa field
+
+    /// Bitwidth of the mantissa field.
     pub const M: usize = Self::PREC - 1;
+
     /// Exponent of the largest finite floating-point value in
     /// this representation when it is in the form `(-1)^s b^e m`
     /// where `m` is a fraction between 1 and 2.
     pub const EMAX: i64 = i64::pow(2, (E - 1) as u32) - 1;
+
     /// Exponent of the smallest normal floating-point value in
     /// this representation when it is in the form `(-1)^s b^e m`
     /// where `m` is a fraction between 1 and 2.
     /// This is just `1 - Self::EMAX`.
     pub const EMIN: i64 = 1 - Self::EMAX;
+
     /// Bitwidth of the NaN payload.
     /// This is just `Self::M - 1`.
-    pub const PAYLOAD_SIZE: usize = Self::M - 1;
+    pub const NAN_PAYLOAD_SIZE: usize = Self::M - 1;
 
     /// Returns the exponent bias.
+    /// This is just `Self::EMAX`.
     #[inline(always)]
     pub const fn bias() -> i64 {
         Self::EMAX
@@ -196,9 +204,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn nan(sign: bool, signaling: bool, payload: BitVec) -> Self {
         assert_eq!(
             payload.len(),
-            Self::PAYLOAD_SIZE,
+            Self::NAN_PAYLOAD_SIZE,
             "expected a payload size of {}, received {}",
-            Self::PAYLOAD_SIZE,
+            Self::NAN_PAYLOAD_SIZE,
             payload.len()
         );
         Self {
@@ -236,7 +244,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
-    /// Returns true if this `Float` encodes a NaN.
+    /// Returns true if this `Float` encodes a zero.
     pub fn is_zero(&self) -> bool {
         match &self.num {
             FloatNum::Number(_, e, c) => *e == 0 && c.not_any(),
@@ -407,11 +415,11 @@ impl<const E: usize, const N: usize> Float<E, N> {
             }
             FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
             FloatNum::Nan(s, signal, payload) => {
-                let payload = if Self::PAYLOAD_SIZE < Float::<E2, N2>::PAYLOAD_SIZE {
+                let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
                     // expand the payload with zeros
                     // payload is put in the most signficant bits
-                    let diff = Float::<E2, N2>::PAYLOAD_SIZE - Self::PAYLOAD_SIZE;
-                    let mut p = BitVec::repeat(false, Float::<E2, N2>::PAYLOAD_SIZE);
+                    let diff = Float::<E2, N2>::NAN_PAYLOAD_SIZE - Self::NAN_PAYLOAD_SIZE;
+                    let mut p = BitVec::repeat(false, Float::<E2, N2>::NAN_PAYLOAD_SIZE);
                     for (i, b) in payload.iter().enumerate() {
                         p.set(diff + i, *b);
                     }
@@ -419,8 +427,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 } else {
                     // truncate the payload
                     // only keep the most signficant bits
-                    let size = Float::<E2, N2>::PAYLOAD_SIZE;
-                    let diff = Self::PAYLOAD_SIZE - size;
+                    let size = Float::<E2, N2>::NAN_PAYLOAD_SIZE;
+                    let diff = Self::NAN_PAYLOAD_SIZE - size;
                     let mut p = BitVec::repeat(false, size);
                     for i in 0..size {
                         p.set(i, *payload.get(i + diff).unwrap());
