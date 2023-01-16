@@ -1,11 +1,18 @@
 use std::ops::ShlAssign;
 
 use bitvec::prelude::Lsb0;
-use bitvec::*;
 use num_bigint::*;
 use num_traits::cast::ToPrimitive;
 
 type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
+
+macro_rules! bitvec {
+    [ $($t:tt)* ] => {
+        {
+            bitvec::bitvec![u32, Lsb0; $($t)*]
+        }
+    };
+}
 
 // Converts a `BitVec` to `BitUint`
 // TODO: this is really dumb
@@ -150,7 +157,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn new() -> Self {
         assert_valid_format!(E, N);
         Self {
-            num: FloatNum::Number(false, 0, bitvec![u32, Lsb0; 0; Self::prec()]),
+            num: FloatNum::Number(false, 0, bitvec![0; Self::prec()]),
             flags: Exceptions::default(),
         }
     }
@@ -168,7 +175,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// using the same width parameters as this `Float`.
     pub fn zero(sign: bool) -> Self {
         Self {
-            num: FloatNum::Number(sign, 0, bitvec![u32, Lsb0; 0; Self::prec()]),
+            num: FloatNum::Number(sign, 0, bitvec![0; Self::prec()]),
             flags: Exceptions::default(),
         }
     }
@@ -385,8 +392,10 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
             } else {
                 // subnormal
                 let exp_diff = 1 + m.trailing_zeros();
+                m.push(false);
                 m.shift_right(exp_diff);
                 exponent -= exp_diff as i64;
+                assert_eq!(m.len(), Self::prec());
                 Self {
                     num: FloatNum::Number(s, exponent, m),
                     flags: Exceptions::default(),
@@ -395,6 +404,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
         } else {
             // normal
             m.push(true);
+            assert_eq!(m.len(), Self::prec());
             Self {
                 num: FloatNum::Number(s, exponent, m),
                 flags: Exceptions::default(),
@@ -412,6 +422,106 @@ impl From<f64> for Float<11, 64> {
         }
 
         Self::from(BitVec::from_vec(v))
+    }
+}
+
+// Implementing `Float<E, N>` for `f64`
+impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
+    fn from(f: Float<E, N>) -> Self {
+        match f.num {
+            FloatNum::Number(s, exp, m) => {
+                if exp == 0 && m.not_any() {
+                    // zero
+                    bitvec![0; N]
+                } else if exp < Float::<E, N>::emin() {
+                    // subnormal
+                    let mut bv = m;
+                    let diff = Float::<E, N>::emin() - exp - 1;
+                    bv.shift_left(diff as usize);
+
+                    while bv.len() != N - 1 {
+                        // all zeros until the sign
+                        bv.push(false);
+                    }
+                    bv.push(s);
+                    assert_eq!(
+                        bv.len(),
+                        N,
+                        "expected a bitvector of length {}, got {}",
+                        N,
+                        bv.len()
+                    );
+                    bv
+                } else {
+                    // normal
+                    let mut e = exp + Float::<E, N>::bias();
+                    let mut bv = BitVec::from(&m[..N - E - 1]);
+                    for _ in 0..E {
+                        bv.push((e % 2) != 0);
+                        e >>= 1;
+                    }
+
+                    bv.push(s);
+                    assert_eq!(
+                        bv.len(),
+                        N,
+                        "expected a bitvector of length {}, got {}",
+                        N,
+                        bv.len()
+                    );
+                    bv
+                }
+            }
+            FloatNum::Infinity(s) => {
+                let mut bv = BitVec::new();
+                for _ in 0..Float::<E, N>::mantissa_size() {
+                    bv.push(false);
+                }
+                for _ in 0..E {
+                    bv.push(true);
+                }
+                bv.push(s);
+                assert_eq!(
+                    bv.len(),
+                    N,
+                    "expected a bitvector of length {}, got {}",
+                    N,
+                    bv.len()
+                );
+                bv
+            }
+            FloatNum::Nan(s, signal, payload) => {
+                let mut bv = payload;
+                bv.push(signal);
+                for _ in 0..E {
+                    bv.push(true);
+                }
+                bv.push(s);
+                assert_eq!(
+                    bv.len(),
+                    N,
+                    "expected a bitvector of length {}, got {}",
+                    N,
+                    bv.len()
+                );
+                bv
+            }
+        }
+    }
+}
+
+// Implementing `Float<11, 64>` for `f64`
+impl From<Float<11, 64>> for f64 {
+    fn from(f: Float<11, 64>) -> Self {
+        let bv: BitVec = f.into();
+        let mut u: u64 = 0;
+        for (i, b) in bv[..64].iter().enumerate() {
+            if *b {
+                u += 1 << i;
+            }
+        }
+
+        f64::from_bits(u)
     }
 }
 

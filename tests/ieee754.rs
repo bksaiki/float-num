@@ -256,3 +256,36 @@ fn from_f64() {
         fp
     );
 }
+
+#[test]
+fn to_f64() {
+    let fps = [
+        1.0,
+        -1.0,
+        0.0,
+        -0.0,
+        f64::MIN_POSITIVE,
+        f64::from_bits(0xF_FFFF_FFFF_FFFF),
+        f64::from_bits(0x1),
+        -f64::from_bits(0x1),
+        f64::MAX,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::from_bits((0x7FF << 52) | (1 << 51)),
+        f64::from_bits((0x7FF << 52) | 0x1),
+    ];
+
+    for fp in fps {
+        let fp2: f64 = Double::from(fp).into();
+        if f64::is_nan(fp) {
+            assert!(
+                f64::is_nan(fp2),
+                "conversion to f64 failed: {} != {}",
+                fp,
+                fp2
+            );
+        } else {
+            assert_eq!(fp, fp2, "conversion to f64 failed: {} != {}", fp, fp2);
+        }
+    }
+}
