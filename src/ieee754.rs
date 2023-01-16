@@ -1,6 +1,6 @@
 use std::ops::ShlAssign;
 
-use bitvec::prelude::Lsb0;
+use bitvec::{field::BitField, prelude::Lsb0};
 use num_bigint::*;
 use num_traits::cast::ToPrimitive;
 
@@ -337,6 +337,34 @@ impl<const E: usize, const N: usize> Float<E, N> {
         )
     }
 
+    #[inline]
+    fn pack_components(s: bool, e: BitVec, m: BitVec) -> BitVec {
+        assert_eq!(
+            e.len(),
+            E,
+            "trying to pack a float with exponent width: {}, expected {}",
+            e.len(),
+            E
+        );
+        assert_eq!(
+            m.len(),
+            Self::mantissa_size(),
+            "trying to pack a float with mantissa width: {}, expected {}",
+            m.len(),
+            Self::mantissa_size()
+        );
+
+        let mut bv = bitvec![0; N];
+        for (i, b) in m.iter().enumerate() {
+            bv.set(i, *b);
+        }
+        for (i, b) in e.iter().enumerate() {
+            bv.set(i + Self::mantissa_size(), *b);
+        }
+        bv.set(N - 1, s);
+        bv
+    }
+
     // Returns the sign field from a packed floating-point representation.
     // Does not check if `bv` has the correct number of bits.
     #[inline]
@@ -348,14 +376,14 @@ impl<const E: usize, const N: usize> Float<E, N> {
     // Does not check if `bv` has the correct number of bits.
     #[inline]
     fn packed_exponent(bv: &BitVec) -> BitVec {
-        BitVec::from(&bv[(N - E - 1)..(N - 1)])
+        bv[(N - E - 1)..(N - 1)].into()
     }
 
     // Returns the mantissa field from a packed floating-point representation.
     // Does not check if `bv` has the correct number of bits.
     #[inline]
     fn packed_mantissa(bv: &BitVec) -> BitVec {
-        BitVec::from(&bv[..(N - E - 1)])
+        bv[..(N - E - 1)].into()
     }
 }
 
@@ -382,7 +410,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
                 Self::infinity(s)
             } else {
                 // NaN
-                Self::nan(s, m[N - E - 2], BitVec::from(&m[..N - E - 2]))
+                Self::nan(s, m[N - E - 2], m[..N - E - 2].into())
             }
         } else if exponent < Self::emin() {
             // subnormal or zero
@@ -416,12 +444,10 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 // Implementing `From<f64>` for `Float<11, 64>
 impl From<f64> for Float<11, 64> {
     fn from(f: f64) -> Self {
-        let (_, mut v) = BigInt::from(f.to_bits()).to_u32_digits();
-        while v.len() < 2 {
-            v.push(0);
-        }
-
-        Self::from(BitVec::from_vec(v))
+        let mut bv = bitvec![0; 64];
+        let b = f.to_bits();
+        bv.store(b);
+        Self::from(bv)
     }
 }
 
@@ -431,82 +457,40 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
         match f.num {
             FloatNum::Number(s, exp, m) => {
                 if exp == 0 && m.not_any() {
-                    // zero
-                    let mut bv = bitvec![0; N-1];
-                    bv.push(s);
-                    bv
+                    let m = bitvec![0; Float::<E, N>::mantissa_size()];
+                    let e = bitvec![0; E];
+                    Float::<E, N>::pack_components(s, e, m)
                 } else if exp < Float::<E, N>::emin() {
                     // subnormal
-                    let mut bv = m;
+                    let mut m = m;
+                    let e = bitvec![0; E];
                     let diff = Float::<E, N>::emin() - exp - 1;
-                    bv.shift_left(diff as usize);
-
-                    while bv.len() != N - 1 {
-                        // all zeros until the sign
-                        bv.push(false);
-                    }
-                    bv.push(s);
-                    assert_eq!(
-                        bv.len(),
-                        N,
-                        "expected a bitvector of length {}, got {}",
-                        N,
-                        bv.len()
-                    );
-                    bv
+                    m.shift_left(diff as usize);
+                    m.pop();    // leading one is now a leading zero
+                    Float::<E, N>::pack_components(s, e, m)
                 } else {
                     // normal
-                    let mut e = exp + Float::<E, N>::bias();
-                    let mut bv = BitVec::from(&m[..N - E - 1]);
-                    for _ in 0..E {
-                        bv.push((e % 2) != 0);
-                        e >>= 1;
+                    let mut exponent = exp + Float::<E, N>::bias();
+                    let m: BitVec = m[..N - E - 1].into();      // remove leading 1
+                    let mut e = bitvec![0; E];
+                    for i in 0..E {
+                        e.set(i, (exponent % 2) != 0);
+                        exponent >>= 1;
                     }
 
-                    bv.push(s);
-                    assert_eq!(
-                        bv.len(),
-                        N,
-                        "expected a bitvector of length {}, got {}",
-                        N,
-                        bv.len()
-                    );
-                    bv
+                    Float::<E, N>::pack_components(s, e, m)
                 }
             }
             FloatNum::Infinity(s) => {
-                let mut bv = BitVec::new();
-                for _ in 0..Float::<E, N>::mantissa_size() {
-                    bv.push(false);
-                }
-                for _ in 0..E {
-                    bv.push(true);
-                }
-                bv.push(s);
-                assert_eq!(
-                    bv.len(),
-                    N,
-                    "expected a bitvector of length {}, got {}",
-                    N,
-                    bv.len()
-                );
-                bv
+                let m = bitvec![0; Float::<E, N>::mantissa_size()];
+                let e = bitvec![1; E];
+                Float::<E, N>::pack_components(s, e, m)
             }
             FloatNum::Nan(s, signal, payload) => {
-                let mut bv = payload;
-                bv.push(signal);
-                for _ in 0..E {
-                    bv.push(true);
-                }
-                bv.push(s);
-                assert_eq!(
-                    bv.len(),
-                    N,
-                    "expected a bitvector of length {}, got {}",
-                    N,
-                    bv.len()
-                );
-                bv
+                let mut m = payload;
+                let e = bitvec![1; E];
+                m.push(signal);         // mantissa = signal | payload
+                Float::<E, N>::pack_components(s, e, m)
             }
         }
     }
@@ -516,14 +500,7 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
 impl From<Float<11, 64>> for f64 {
     fn from(f: Float<11, 64>) -> Self {
         let bv: BitVec = f.into();
-        let mut u: u64 = 0;
-        for (i, b) in bv[..64].iter().enumerate() {
-            if *b {
-                u += 1 << i;
-            }
-        }
-
-        f64::from_bits(u)
+        f64::from_bits(bv[..64].load())
     }
 }
 
