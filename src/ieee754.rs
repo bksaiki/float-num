@@ -39,6 +39,43 @@ enum FloatNum {
     Nan(bool, bool, BitVec),
 }
 
+/** Rounding modes
+ *
+ * The IEEE-754 standard specifies five rounding modes:
+ *
+ *  - two nearest modes:
+ *    - _roundTiesToEven_: rounds to the nearest representable floating-point value.
+ *       In this case there is a tie, round to the floating-point value whose
+ *       mantissa has a least significant bit of 0.
+ *    - _roundTiesToAway_: rounds to the nearest representable floating-point value.
+ *       In this case there is a tie, round to the floating-point value with greater magnitude.
+ *  - three directed modes:
+ *    - _roundTowardPositive_: rounds to the closest representable floating-point value
+ *      in the direction of positive infinity.
+ *    - _roundTowardNegative_: rounds to the closest representable floating-point value
+ *      in the direction of negative infinity.
+ *    - _roundTowardZero_: rounds to the closest representable floating-point value
+ *      in the direction of zero.
+ *
+ * This module defines a sixth:
+ *  - _roundToOdd_: rounds to the closest representable floating-point value
+ *      whose mantissa has a least significant bit of 1.
+ *
+ * The rounding behavior of zero, signed zero, positive infinity, negative infinity,
+ * and all encodings of NaN  will be unaffected by rounding mode.
+ */
+pub enum RoundingMode {
+    // nearest modes
+    RoundNearestEven,
+    RoundNearestAway,
+    // directed
+    RoundToPositive,
+    RoundToNegative,
+    RoundToZero,
+    // strange
+    RoundToOdd,
+}
+
 /** Exception flags as specified by the IEEE-754 standard.
  *
  * Besides returning a (possibly) numerical result, any computation with
@@ -93,60 +130,34 @@ pub struct Float<const E: usize, const N: usize> {
 
 // Format parameters
 impl<const E: usize, const N: usize> Float<E, N> {
-    /// Returns the width of the exponent field for this `Float`.
-    #[inline(always)]
-    pub const fn exponent_size() -> usize {
-        E
-    }
-
-    /// Returns the bitwidth for this `Float`.
-    #[inline(always)]
-    pub const fn total_size() -> usize {
-        N
-    }
-
-    /// Returns the radix of this `Float`, in this case, 2.
-    #[inline(always)]
-    pub const fn radix() -> usize {
-        2
-    }
-
-    /// Returns the number of (binary digits) in the signficand for this `Float`.
-    /// This is just `Self::mantissa_size() + 1`.
-    #[inline(always)]
-    pub const fn prec() -> usize {
-        N - E
-    }
-
-    /// Returns maximum exponent value of this `Float` when in normalized form.
-    #[inline(always)]
-    pub const fn emax() -> i64 {
-        i64::pow(2, (E - 1) as u32) - 1
-    }
-
-    /// Returns minimum exponent value of this `Float` when in normalized form.
-    /// This will always be `1 - Self::emax()`.
-    #[inline(always)]
-    pub const fn emin() -> i64 {
-        1 - Self::emax()
-    }
-
-    /// Returns the size of the mantissa for this `Float`.
-    #[inline(always)]
-    pub const fn mantissa_size() -> usize {
-        N - E - 1
-    }
-
-    /// Returns the size of the NaN payload for this `Float`.
-    #[inline(always)]
-    pub const fn nan_payload_size() -> usize {
-        N - E - 2
-    }
+    /// Bitwidth of the representation
+    pub const N: usize = N;
+    /// Bitwidth of the exponent field
+    pub const E: usize = E;
+    /// Radix, in this case, 2
+    pub const B: usize = 2;
+    /// Number of (binary) digits in the signficand.
+    /// This is just `Self::M + 1`.
+    pub const PREC: usize = N - E;
+    /// Bitwidth of the mantissa field
+    pub const M: usize = Self::PREC - 1;
+    /// Exponent of the largest finite floating-point value in
+    /// this representation when it is in the form `(-1)^s b^e m`
+    /// where `m` is a fraction between 1 and 2.
+    pub const EMAX: i64 = i64::pow(2, (E - 1) as u32) - 1;
+    /// Exponent of the smallest normal floating-point value in
+    /// this representation when it is in the form `(-1)^s b^e m`
+    /// where `m` is a fraction between 1 and 2.
+    /// This is just `1 - Self::EMAX`.
+    pub const EMIN: i64 = 1 - Self::EMAX;
+    /// Bitwidth of the NaN payload.
+    /// This is just `Self::M - 1`.
+    pub const PAYLOAD_SIZE: usize = Self::M - 1;
 
     /// Returns the exponent bias.
     #[inline(always)]
     pub const fn bias() -> i64 {
-        Self::emax()
+        Self::EMAX
     }
 }
 
@@ -157,7 +168,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn new() -> Self {
         assert_valid_format!(E, N);
         Self {
-            num: FloatNum::Number(false, 0, bitvec![0; Self::prec()]),
+            num: FloatNum::Number(false, 0, bitvec![0; Self::PREC]),
             flags: Exceptions::default(),
         }
     }
@@ -175,7 +186,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// using the same width parameters as this `Float`.
     pub fn zero(sign: bool) -> Self {
         Self {
-            num: FloatNum::Number(sign, 0, bitvec![0; Self::prec()]),
+            num: FloatNum::Number(sign, 0, bitvec![0; Self::PREC]),
             flags: Exceptions::default(),
         }
     }
@@ -185,9 +196,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn nan(sign: bool, signaling: bool, payload: BitVec) -> Self {
         assert_eq!(
             payload.len(),
-            Self::nan_payload_size(),
+            Self::PAYLOAD_SIZE,
             "expected a payload size of {}, received {}",
-            Self::nan_payload_size(),
+            Self::PAYLOAD_SIZE,
             payload.len()
         );
         Self {
@@ -236,7 +247,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a subnormal number
     pub fn is_subnormal(&self) -> bool {
         match &self.num {
-            FloatNum::Number(_, e, _) => *e != 0 && *e < Self::emin(),
+            FloatNum::Number(_, e, _) => *e != 0 && *e < Self::EMIN,
             _ => false,
         }
     }
@@ -244,7 +255,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a normal number
     pub fn is_normal(&self) -> bool {
         match &self.num {
-            FloatNum::Number(_, e, _) => *e >= Self::emin(),
+            FloatNum::Number(_, e, _) => *e >= Self::EMIN,
             _ => false,
         }
     }
@@ -316,13 +327,6 @@ impl<const E: usize, const N: usize> Float<E, N> {
     }
 }
 
-// Implementing `Default`
-impl<const E: usize, const N: usize> Default for Float<E, N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 // Packed float utilities
 impl<const E: usize, const N: usize> Float<E, N> {
     // Splices a packed floating-point representation into
@@ -348,10 +352,10 @@ impl<const E: usize, const N: usize> Float<E, N> {
         );
         assert_eq!(
             m.len(),
-            Self::mantissa_size(),
+            Self::M,
             "trying to pack a float with mantissa width: {}, expected {}",
             m.len(),
-            Self::mantissa_size()
+            Self::M
         );
 
         let mut bv = bitvec![0; N];
@@ -359,7 +363,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             bv.set(i, *b);
         }
         for (i, b) in e.iter().enumerate() {
-            bv.set(i + Self::mantissa_size(), *b);
+            bv.set(i + Self::M, *b);
         }
         bv.set(N - 1, s);
         bv
@@ -387,6 +391,85 @@ impl<const E: usize, const N: usize> Float<E, N> {
     }
 }
 
+// Rounding (casts)
+impl<const E: usize, const N: usize> Float<E, N> {
+    /// Rounds this `Float` to the representation specified by `Float<E2, N2>`.
+    pub fn round<const E2: usize, const N2: usize>(&self, rm: RoundingMode) -> Float<E2, N2> {
+        match &self.num {
+            FloatNum::Number(s, _, _) => {
+                if self.is_zero() {
+                    // easy case: also a zero in the new representation
+                    Float::<E2, N2>::zero(*s)
+                } else {
+                    // hard case: need to actually round
+                    Self::round_finite(self, rm)
+                }
+            }
+            FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
+            FloatNum::Nan(s, signal, payload) => {
+                let payload = if Self::PAYLOAD_SIZE < Float::<E2, N2>::PAYLOAD_SIZE {
+                    // expand the payload with zeros
+                    // payload is put in the most signficant bits
+                    let diff = Float::<E2, N2>::PAYLOAD_SIZE - Self::PAYLOAD_SIZE;
+                    let mut p = BitVec::repeat(false, Float::<E2, N2>::PAYLOAD_SIZE);
+                    for (i, b) in payload.iter().enumerate() {
+                        p.set(diff + i, *b);
+                    }
+                    p
+                } else {
+                    // truncate the payload
+                    // only keep the most signficant bits
+                    let size = Float::<E2, N2>::PAYLOAD_SIZE;
+                    let diff = Self::PAYLOAD_SIZE - size;
+                    let mut p = BitVec::repeat(false, size);
+                    for i in 0..size {
+                        p.set(i, *payload.get(i + diff).unwrap());
+                    }
+                    p
+                };
+                Float::<E2, N2>::nan(*s, *signal, payload)
+            }
+        }
+    }
+
+    // Rounds a finite, non-zero number in the representation specified
+    // by `Float<E2, N2>` using the rounding mode `rm`.
+    fn round_finite<const E2: usize, const N2: usize>(&self, rm: RoundingMode) -> Float<E2, N2> {
+        // unpack
+        let (s, mut exp, m) = match &self.num {
+            FloatNum::Number(s, exp, m) => (*s, *exp, m),
+            _ => panic!("called on a non-finite float"),
+        };
+
+        // We will construct the new mantissa with two rounding bits (RS).
+        // Then we'll call the (rounding) finalizer to complete the rounding
+        // process and raise the correct exception flags.
+        let mut m2 = BitVec::repeat(false, Float::<E2, N2>::M);
+        let mut half_bit = false;
+        let mut quarter_bit = false;
+
+        if m.len() < Float::<E2, N2>::M {
+            // the current mantissa will fit entirely in the new mantissa
+            // insert most significant bits, then fill with zeros
+            // `half_bit` and `quarter_bit` are clearly zero
+            // adjust `exp` accordingly
+            let diff = m2.len() - m.len();
+            for (i, b) in m.iter().enumerate() {
+                m2.set(i + diff, *b);
+            }
+        }
+
+        todo!()
+    }
+}
+
+// Implementing `Default` for `Float`
+impl<const E: usize, const N: usize> Default for Float<E, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // Implementing `From<Bitvec>` for `Float`
 impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
     fn from(bv: BitVec) -> Self {
@@ -404,7 +487,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
         let mut exponent = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
 
         // branch on exponent
-        if exponent > Self::emax() {
+        if exponent > Self::EMAX {
             if m.not_any() {
                 // infinity
                 Self::infinity(s)
@@ -412,7 +495,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
                 // NaN
                 Self::nan(s, m[N - E - 2], m[..N - E - 2].into())
             }
-        } else if exponent < Self::emin() {
+        } else if exponent < Self::EMIN {
             // subnormal or zero
             if m.not_any() {
                 // zero
@@ -423,7 +506,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
                 m.push(false);
                 m.shift_right(exp_diff);
                 exponent -= exp_diff as i64;
-                assert_eq!(m.len(), Self::prec());
+                assert_eq!(m.len(), Self::PREC);
                 Self {
                     num: FloatNum::Number(s, exponent, m),
                     flags: Exceptions::default(),
@@ -432,7 +515,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
         } else {
             // normal
             m.push(true);
-            assert_eq!(m.len(), Self::prec());
+            assert_eq!(m.len(), Self::PREC);
             Self {
                 num: FloatNum::Number(s, exponent, m),
                 flags: Exceptions::default(),
@@ -457,21 +540,21 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
         match f.num {
             FloatNum::Number(s, exp, m) => {
                 if exp == 0 && m.not_any() {
-                    let m = bitvec![0; Float::<E, N>::mantissa_size()];
+                    let m = bitvec![0; Float::<E, N>::M];
                     let e = bitvec![0; E];
                     Float::<E, N>::pack_components(s, e, m)
-                } else if exp < Float::<E, N>::emin() {
+                } else if exp < Float::<E, N>::EMIN {
                     // subnormal
                     let mut m = m;
                     let e = bitvec![0; E];
-                    let diff = Float::<E, N>::emin() - exp - 1;
+                    let diff = Float::<E, N>::EMIN - exp - 1;
                     m.shift_left(diff as usize);
-                    m.pop();    // leading one is now a leading zero
+                    m.pop(); // leading one is now a leading zero
                     Float::<E, N>::pack_components(s, e, m)
                 } else {
                     // normal
                     let mut exponent = exp + Float::<E, N>::bias();
-                    let m: BitVec = m[..N - E - 1].into();      // remove leading 1
+                    let m: BitVec = m[..N - E - 1].into(); // remove leading 1
                     let mut e = bitvec![0; E];
                     for i in 0..E {
                         e.set(i, (exponent % 2) != 0);
@@ -482,14 +565,14 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
                 }
             }
             FloatNum::Infinity(s) => {
-                let m = bitvec![0; Float::<E, N>::mantissa_size()];
+                let m = bitvec![0; Float::<E, N>::M];
                 let e = bitvec![1; E];
                 Float::<E, N>::pack_components(s, e, m)
             }
             FloatNum::Nan(s, signal, payload) => {
                 let mut m = payload;
                 let e = bitvec![1; E];
-                m.push(signal);         // mantissa = signal | payload
+                m.push(signal); // mantissa = signal | payload
                 Float::<E, N>::pack_components(s, e, m)
             }
         }

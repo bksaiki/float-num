@@ -5,26 +5,33 @@ type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 
 #[test]
 fn parameters() {
-    assert_eq!(Quad::exponent_size(), 15);
-    assert_eq!(Quad::total_size(), 128);
-    assert_eq!(Quad::radix(), 2);
-    assert_eq!(Quad::prec(), 113);
-    assert_eq!(Quad::emax(), 16383);
-    assert_eq!(Quad::emin(), -16382);
+    assert_eq!(Quad::E, 15);
+    assert_eq!(Quad::N, 128);
+    assert_eq!(Quad::B, 2);
+    assert_eq!(Quad::PREC, 113);
+    assert_eq!(Quad::EMAX, 16383);
+    assert_eq!(Quad::EMIN, -16382);
 
-    assert_eq!(Double::exponent_size(), 11);
-    assert_eq!(Double::total_size(), 64);
-    assert_eq!(Double::radix(), 2);
-    assert_eq!(Double::prec(), 53);
-    assert_eq!(Double::emax(), 1023);
-    assert_eq!(Double::emin(), -1022);
+    assert_eq!(Double::E, 11);
+    assert_eq!(Double::N, 64);
+    assert_eq!(Double::B, 2);
+    assert_eq!(Double::PREC, 53);
+    assert_eq!(Double::EMAX, 1023);
+    assert_eq!(Double::EMIN, -1022);
 
-    assert_eq!(Single::exponent_size(), 8);
-    assert_eq!(Single::total_size(), 32);
-    assert_eq!(Single::radix(), 2);
-    assert_eq!(Single::prec(), 24);
-    assert_eq!(Single::emax(), 127);
-    assert_eq!(Single::emin(), -126);
+    assert_eq!(Single::E, 8);
+    assert_eq!(Single::N, 32);
+    assert_eq!(Single::B, 2);
+    assert_eq!(Single::PREC, 24);
+    assert_eq!(Single::EMAX, 127);
+    assert_eq!(Single::EMIN, -126);
+
+    assert_eq!(Half::E, 5);
+    assert_eq!(Half::N, 16);
+    assert_eq!(Half::B, 2);
+    assert_eq!(Half::PREC, 11);
+    assert_eq!(Half::EMAX, 15);
+    assert_eq!(Half::EMIN, -14);
 }
 
 #[test]
