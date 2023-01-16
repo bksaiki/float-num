@@ -82,24 +82,30 @@ pub enum RoundingMode {
  * floating-point numbers may also raise exceptions depending on certain conditions.
  * These exceptions include:
  *
- *  - invalid: no useful definable result;
- *  - division by zero: an infinite result for finite arguments;
- *  - overflow: result exceeded in magnitude what would have been the rounded result
+ *  - _invalid operation_: no useful definable result;
+ *  - _division by zero_: an infinite result for finite arguments;
+ *  - _overflow_: result exceeded in magnitude what would have been the rounded result
  *      had the exponent range been unbounded;
- *  - underflow: non-zero result that either (a) would lie strictly between
+ *  - _underflow_: non-zero result that either (a) would lie strictly between
  *      `-b^emin` and `+b^emin` had the exponent range been unbounded,
  *      or (b) would lie strictly between `-b^emin` and `+b^emin`
  *      had the exponent range and precision been unbounded;
- *  - inexact: result would be different had both the exponent range and precision been unbounded.
+ *  - _inexact_: result would be different had both the exponent range
+ *      and precision been unbounded.
  *
  */
 #[derive(Copy, Clone, Default)]
 pub struct Exceptions {
-    invalid: bool,
-    div_by_zero: bool,
-    overflow: bool,
-    underflow: bool,
-    inexact: bool,
+    /// The _invalid operation_ flag.
+    pub invalid: bool,
+    /// The _division by zero_ flag.
+    pub div_by_zero: bool,
+    /// The _overflow_ flag.
+    pub overflow: bool,
+    /// The _underflow_ flag.
+    pub underflow: bool,
+    /// The _inexact_ flag.
+    pub inexact: bool,
 }
 
 macro_rules! assert_valid_format {
