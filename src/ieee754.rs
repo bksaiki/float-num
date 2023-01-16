@@ -1,4 +1,4 @@
-use std::ops::ShlAssign;
+use std::ops::{AddAssign, ShlAssign};
 
 use bitvec::{field::BitField, prelude::Lsb0};
 use num_bigint::*;
@@ -26,17 +26,15 @@ fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
     i
 }
 
-// Minimal floating-point encoding grouped by classification
-enum FloatNum {
-    // signed zero or finite number
-    // => (sign, exponent, mantissa)
-    Number(bool, i64, BitVec),
-    // infinity (+/-)
-    // => (sign)
-    Infinity(bool),
-    // not-a-number
-    // => (sign, signaling, payload)
-    Nan(bool, bool, BitVec),
+// Converts a `BitUint` to `BitVec`
+// TODO: this is really dumb
+fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
+    let mut bv = BitVec::from_vec(i.to_u32_digits());
+    while bv.len() < width {
+        bv.push(false);
+    }
+
+    bv
 }
 
 /** Rounding modes
@@ -64,17 +62,24 @@ enum FloatNum {
  * The rounding behavior of zero, signed zero, positive infinity, negative infinity,
  * and all encodings of NaN  will be unaffected by rounding mode.
  */
+#[derive(Copy, Clone)]
 pub enum RoundingMode {
-    // nearest modes
-    RoundNearestEven,
-    RoundNearestAway,
-    // directed
-    RoundToPositive,
-    RoundToNegative,
-    RoundToZero,
-    // strange
-    RoundToOdd,
+    NearestEven,
+    NearestAway,
+    ToPositive,
+    ToNegative,
+    ToZero,
+    ToOdd,
 }
+
+// Specifies a rounding type.
+// Used for intermediate rounding.
+// Does not specify tie-breaking behavior.
+// enum RoundingDirection {
+//     Nearest,
+//     ToZero,
+//     AwayZero,
+// }
 
 /** Exception flags as specified by the IEEE-754 standard.
  *
@@ -108,6 +113,30 @@ pub struct Exceptions {
     pub inexact: bool,
 }
 
+// Minimal floating-point encoding grouped by classification
+enum FloatNum {
+    // signed zero or finite number
+    // => (sign, exponent, significand)
+    Number(bool, i64, BitVec),
+    // infinity (+/-)
+    // => (sign)
+    Infinity(bool),
+    // not-a-number
+    // => (sign, signaling, payload)
+    Nan(bool, bool, BitVec),
+}
+
+/** A floating-point number as specified by the IEEE-754 standard.
+ *
+ * The generics `E` and `N` specify the number of bits in the
+ * exponent field and in the entire float overall.
+ *
+ */
+pub struct Float<const E: usize, const N: usize> {
+    num: FloatNum,     // number encoding
+    flags: Exceptions, // exceptions
+}
+
 macro_rules! assert_valid_format {
     ($E:expr, $N:expr) => {
         assert!(
@@ -121,17 +150,6 @@ macro_rules! assert_valid_format {
             $N
         );
     };
-}
-
-/** A floating-point number as specified by the IEEE-754 standard.
- *
- * The generics `E` and `N` specify the number of bits in the
- * exponent field and in the entire float overall.
- *
- */
-pub struct Float<const E: usize, const N: usize> {
-    num: FloatNum,     // number encoding
-    flags: Exceptions, // exceptions
 }
 
 // Format parameters
@@ -285,8 +303,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     }
 
     /// Returns true if this `Float` encodes a signaling NaN.
-    /// The result is wrapped in an option since only NaNs
-    /// can be signaling.
+    /// The result is wrapped in an option since only NaNs can be signaling.
     pub fn is_signaling_nan(&self) -> Option<bool> {
         match self.num {
             FloatNum::Nan(_, signal, _) => Some(signal),
@@ -295,8 +312,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     }
 
     /// Returns the NaN payload of this `Float` as a `Bitvec`.
-    /// The result is wrapped in an option since only a NaN
-    /// has a payload.
+    /// The result is wrapped in an option since only a NaN has a payload.
     pub fn nan_payload(&self) -> Option<BitVec> {
         match &self.num {
             FloatNum::Nan(_, _, payload) => Some(payload.clone()),
@@ -458,22 +474,162 @@ impl<const E: usize, const N: usize> Float<E, N> {
         // We will construct the new mantissa with two rounding bits (RS).
         // Then we'll call the (rounding) finalizer to complete the rounding
         // process and raise the correct exception flags.
-        let mut m2 = BitVec::repeat(false, Float::<E2, N2>::M);
+        let mut m2 = BitVec::repeat(false, Float::<E2, N2>::PREC);
         let mut half_bit = false;
-        let mut quarter_bit = false;
+        let mut sticky_bit = false;
 
-        if m.len() < Float::<E2, N2>::M {
-            // the current mantissa will fit entirely in the new mantissa
-            // insert most significant bits, then fill with zeros
-            // `half_bit` and `quarter_bit` are clearly zero
-            // adjust `exp` accordingly
-            let diff = m2.len() - m.len();
+        if Self::PREC == Float::<E2, N2>::PREC {
+            // The current mantissa is the new mantissa
+            //  - `half_bit` and `sticky_bit` are zero
+            //  - preserve the mantissa and exponent
+            m2 = m.clone();
+        } else if Self::PREC < Float::<E2, N2>::PREC {
+            // The current mantissa will fit entirely in the new mantissa:
+            //  - insert most significant bits, then fill with zeros
+            //  - `half_bit` and `sticky_bit` are zero
+            //  - adjust `exp` accordingly
+            let diff = Float::<E2, N2>::PREC - Self::PREC;
             for (i, b) in m.iter().enumerate() {
                 m2.set(i + diff, *b);
             }
+
+            exp -= diff as i64;
+        } else {
+            // Truncation will occur:
+            //  - preserve the highest `Float::<E2, N2>::PREC` bits
+            //  - the next bit is `half_bit`
+            //  - if any of the remaining bits are high, set `sticky_bit` to 1
+            //  - adjust exp accordingly
+            let diff = Self::PREC - Float::<E2, N2>::PREC;
+            if diff == 1 {
+                // easy case:
+                //  - `m2` is `m[1..PREC]`
+                //  - half bit is m[0]
+                //  - sticky_bit is 0
+                m2 = m[1..Self::PREC].into();
+                half_bit = m[0];
+            } else if diff == 2 {
+                // easy case:
+                //  - `m2` is `m[2..PREC]`
+                //  - half bit is m[1]
+                //  - sticky bit is m[0]
+                m2 = m[2..Self::PREC].into();
+                half_bit = m[1];
+                sticky_bit = m[0];
+            } else {
+                // hard case:
+                //  - actually split the mantissa
+                //  - `m2` is the high part
+                //  - half bit is the MSB of the low part
+                //  - sticky bit is OR of the rest of the low part
+                let (low, high) = m.split_at(diff);
+                let (low_rest, low_msb) = low.split_at(low.len() - 1);
+
+                m2 = high.into();
+                half_bit = low_msb[0];
+                sticky_bit = low_rest.any();
+            }
+
+            exp += diff as i64;
         }
 
-        todo!()
+        Float::<E2, N2>::round_finalize(s, exp, m2, half_bit, sticky_bit, rm)
+    }
+
+    // Returns true if the rounding information implies the mantissa,
+    // as viewed as integer, should be incremented by 1.
+    fn round_requires_increment(
+        sign: bool,
+        lsb: bool,
+        half_bit: bool,
+        sticky_bit: bool,
+        rm: RoundingMode,
+    ) -> bool {
+        match rm {
+            RoundingMode::NearestEven => {
+                // no half bit => truncate
+                // half bit and sticky bit => increment
+                // tie => increment if lsb since we want it to be 0
+                half_bit && (sticky_bit || lsb)
+            }
+            RoundingMode::NearestAway => {
+                // no half bit => truncate
+                // half bit => increment (tie requires increment)
+                half_bit
+            }
+            RoundingMode::ToPositive => {
+                if sign {
+                    // negative => always truncate
+                    false
+                } else {
+                    // positive => increment if not exact
+                    half_bit || sticky_bit
+                }
+            }
+            RoundingMode::ToNegative => {
+                if sign {
+                    // negative => increment if not exact
+                    half_bit || sticky_bit
+                } else {
+                    // positive => always truncate
+                    false
+                }
+            }
+            RoundingMode::ToZero => {
+                // always truncate
+                false
+            }
+            RoundingMode::ToOdd => {
+                // LSB of the mantissa needs to be 1
+                !lsb
+            }
+        }
+    }
+
+    // Constructs a new `Float` based on rounding information.
+    // Requires a sign, mantissa, exponent, half bit, and sticky bit
+    fn round_finalize(
+        s: bool,
+        mut exp: i64,
+        mut m: BitVec,
+        half_bit: bool,
+        sticky_bit: bool,
+        rm: RoundingMode,
+    ) -> Self {
+        let increment = Self::round_requires_increment(s, m[0], half_bit, sticky_bit, rm);
+        if increment {
+            // increment the mantissa
+            // possibly need to adjust exponent
+            let mut c = bitvec_to_biguint(m);
+            c.add_assign(1_u8);
+            let m_ext = biguint_to_bitvec(c, Self::PREC + 1);
+            let carry = m_ext[Self::PREC];
+
+            m = m_ext[0..Self::PREC].into();
+            if carry {
+                m.set(Self::PREC - 1, true);
+                exp += 1;
+            }
+        }
+
+        assert_eq!(
+            m.len(),
+            Self::PREC,
+            "unexpected mantissa width after rounding: {}, expected {}",
+            m.len(),
+            Self::PREC
+        );
+
+        Self {
+            num: FloatNum::Number(s, exp, m),
+            flags: Exceptions {
+                invalid: false,
+                div_by_zero: false,
+                overflow: false,
+                underflow: false,
+                inexact: half_bit || sticky_bit,
+            },
+        }
     }
 }
 

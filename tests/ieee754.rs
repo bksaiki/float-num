@@ -369,3 +369,32 @@ fn conversions_8_16() {
         assert_eq!(bv, bv2, "bv->fp->bv conversion failed: {} != {}", bv, bv2);
     }
 }
+
+#[test]
+fn round_trivial() {
+    let rm = RoundingMode::NearestEven;
+    let fps = [
+        0.0,
+        -0.0,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::from_bits((0x7FF << 52) | (1 << 51)),
+        f64::from_bits((0x7FF << 52) | 0x1),
+    ];
+
+    for fp in fps {
+        let fp = Double::from(fp);
+        let fp128: Quad = fp.round(rm);
+        let fp2: Double = fp128.round(rm);
+
+        let bv: BitVec = fp.into();
+        let bv2: BitVec = fp2.into();
+        assert_eq!(bv, bv2, "fp->fp->fp conversion failed: {} != {}", bv, bv2);
+    }
+}
+
+#[test]
+fn sandbox() {
+    let fp = Double::from(0.999999999999999888978);
+    let fp2: Float<11, 61> = fp.round(RoundingMode::ToPositive);
+}
