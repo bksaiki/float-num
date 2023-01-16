@@ -1,4 +1,7 @@
+use bitvec::prelude::Lsb0;
 use float_sim::ieee754::*;
+
+type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 
 #[test]
 fn parameters() {
@@ -287,5 +290,75 @@ fn to_f64() {
         } else {
             assert_eq!(fp, fp2, "conversion to f64 failed: {} != {}", fp, fp2);
         }
+    }
+}
+
+#[test]
+fn conversions_2_4() {
+    const E: usize = 2;
+    const N: usize = 4;
+    type F = Float<E, N>;
+    for i in 0..u32::pow(2, N as u32) {
+        let mut bv = BitVec::from_element(i);
+        bv.resize(N, false);
+        let f = F::from(bv.clone());
+        let bv2 = BitVec::from(f);
+        assert_eq!(bv, bv2, "bv->fp->bv conversion failed: {} != {}", bv, bv2);
+    }
+}
+
+#[test]
+fn conversions_3_6() {
+    const E: usize = 3;
+    const N: usize = 6;
+    type F = Float<E, N>;
+    for i in 0..u32::pow(2, N as u32) {
+        let mut bv = BitVec::from_element(i);
+        bv.resize(N, false);
+        let f = F::from(bv.clone());
+        let bv2 = BitVec::from(f);
+        assert_eq!(bv, bv2, "bv->fp->bv conversion failed: {} != {}", bv, bv2);
+    }
+}
+
+#[test]
+fn conversions_4_8() {
+    const E: usize = 4;
+    const N: usize = 8;
+    type F = Float<E, N>;
+    for i in 0..u32::pow(2, N as u32) {
+        let mut bv = BitVec::from_element(i);
+        bv.resize(N, false);
+        let f = F::from(bv.clone());
+        let bv2 = BitVec::from(f);
+        assert_eq!(bv, bv2, "bv->fp->bv conversion failed: {} != {}", bv, bv2);
+    }
+}
+
+#[test]
+fn conversions_8_12() {
+    const E: usize = 8;
+    const N: usize = 12;
+    type F = Float<E, N>;
+    for i in 0..u32::pow(2, N as u32) {
+        let mut bv = BitVec::from_element(i);
+        bv.resize(N, false);
+        let f = F::from(bv.clone());
+        let bv2 = BitVec::from(f);
+        assert_eq!(bv, bv2, "bv->fp->bv conversion failed: {} != {}", bv, bv2);
+    }
+}
+
+#[test]
+fn conversions_8_16() {
+    const E: usize = 8;
+    const N: usize = 16;
+    type F = Float<E, N>;
+    for i in 0..u32::pow(2, N as u32) {
+        let mut bv = BitVec::from_element(i);
+        bv.resize(N, false);
+        let f = F::from(bv.clone());
+        let bv2 = BitVec::from(f);
+        assert_eq!(bv, bv2, "bv->fp->bv conversion failed: {} != {}", bv, bv2);
     }
 }

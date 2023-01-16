@@ -432,7 +432,9 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
             FloatNum::Number(s, exp, m) => {
                 if exp == 0 && m.not_any() {
                     // zero
-                    bitvec![0; N]
+                    let mut bv = bitvec![0; N-1];
+                    bv.push(s);
+                    bv
                 } else if exp < Float::<E, N>::emin() {
                     // subnormal
                     let mut bv = m;
