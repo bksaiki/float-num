@@ -1,4 +1,7 @@
-use std::ops::{AddAssign, ShlAssign};
+use std::{
+    cmp::Ordering,
+    ops::{AddAssign, ShlAssign},
+};
 
 use bitvec::{field::BitField, prelude::Lsb0};
 use num_bigint::*;
@@ -30,10 +33,7 @@ fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
 // TODO: this is really dumb
 fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
     let mut bv = BitVec::from_vec(i.to_u32_digits());
-    while bv.len() < width {
-        bv.push(false);
-    }
-
+    bv.resize(width, false);
     bv
 }
 
@@ -357,7 +357,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     }
 }
 
-// Packed float utilities
+// Utility
 impl<const E: usize, const N: usize> Float<E, N> {
     // Splices a packed floating-point representation into
     // the sign, exponent, and mantissa field.
@@ -426,15 +426,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Rounds this `Float` to the representation specified by `Float<E2, N2>`.
     pub fn round<const E2: usize, const N2: usize>(&self, rm: RoundingMode) -> Float<E2, N2> {
         match &self.num {
-            FloatNum::Number(s, _, _) => {
-                if self.is_zero() {
-                    // easy case: also a zero in the new representation
-                    Float::<E2, N2>::zero(*s)
-                } else {
-                    // hard case: need to actually round
-                    Self::round_finite(self, rm)
-                }
-            }
+            FloatNum::Number(s, exp, c) => Float::<E2, N2>::round_finite(*s, *exp, c.clone(), rm),
             FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
             FloatNum::Nan(s, signal, payload) => {
                 let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
@@ -464,76 +456,84 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
     // Rounds a finite, non-zero number in the representation specified
     // by `Float<E2, N2>` using the rounding mode `rm`.
-    fn round_finite<const E2: usize, const N2: usize>(&self, rm: RoundingMode) -> Float<E2, N2> {
-        // unpack
-        let (s, mut exp, m) = match &self.num {
-            FloatNum::Number(s, exp, m) => (*s, *exp, m),
-            _ => panic!("called on a non-finite float"),
-        };
-
-        // We will construct the new mantissa with two rounding bits (RS).
-        // Then we'll call the (rounding) finalizer to complete the rounding
-        // process and raise the correct exception flags.
-        let mut m2 = BitVec::repeat(false, Float::<E2, N2>::PREC);
-        let mut half_bit = false;
-        let mut sticky_bit = false;
-
-        if Self::PREC == Float::<E2, N2>::PREC {
-            // The current mantissa is the new mantissa
-            //  - `half_bit` and `sticky_bit` are zero
-            //  - preserve the mantissa and exponent
-            m2 = m.clone();
-        } else if Self::PREC < Float::<E2, N2>::PREC {
-            // The current mantissa will fit entirely in the new mantissa:
-            //  - insert most significant bits, then fill with zeros
-            //  - `half_bit` and `sticky_bit` are zero
-            //  - adjust `exp` accordingly
-            let diff = Float::<E2, N2>::PREC - Self::PREC;
-            for (i, b) in m.iter().enumerate() {
-                m2.set(i + diff, *b);
-            }
-
-            exp -= diff as i64;
+    fn round_finite<const E2: usize, const N2: usize>(
+        s: bool,
+        mut exp: i64,
+        m: BitVec,
+        rm: RoundingMode,
+    ) -> Float<E2, N2> {
+        let prec = m.len();
+        if exp == 0 && m.not_any() {
+            Float::<E2, N2>::zero(s)
         } else {
-            // Truncation will occur:
-            //  - preserve the highest `Float::<E2, N2>::PREC` bits
-            //  - the next bit is `half_bit`
-            //  - if any of the remaining bits are high, set `sticky_bit` to 1
-            //  - adjust exp accordingly
-            let diff = Self::PREC - Float::<E2, N2>::PREC;
-            if diff == 1 {
-                // easy case:
-                //  - `m2` is `m[1..PREC]`
-                //  - half bit is m[0]
-                //  - sticky_bit is 0
-                m2 = m[1..Self::PREC].into();
-                half_bit = m[0];
-            } else if diff == 2 {
-                // easy case:
-                //  - `m2` is `m[2..PREC]`
-                //  - half bit is m[1]
-                //  - sticky bit is m[0]
-                m2 = m[2..Self::PREC].into();
-                half_bit = m[1];
-                sticky_bit = m[0];
-            } else {
-                // hard case:
-                //  - actually split the mantissa
-                //  - `m2` is the high part
-                //  - half bit is the MSB of the low part
-                //  - sticky bit is OR of the rest of the low part
-                let (low, high) = m.split_at(diff);
-                let (low_rest, low_msb) = low.split_at(low.len() - 1);
+            // We will construct the new mantissa with two rounding bits (RS).
+            // Then we'll call the (rounding) finalizer to complete the rounding
+            // process and raise the correct exception flags.
+            let mut m2 = BitVec::repeat(false, Float::<E2, N2>::PREC);
+            let mut half_bit = false;
+            let mut sticky_bit = false;
 
-                m2 = high.into();
-                half_bit = low_msb[0];
-                sticky_bit = low_rest.any();
+            match prec.cmp(&Float::<E2, N2>::PREC) {
+                Ordering::Equal => {
+                    // The current mantissa is the new mantissa
+                    //  - `half_bit` and `sticky_bit` are zero
+                    //  - preserve the mantissa and exponent
+                    m2 = m;
+                }
+                Ordering::Less => {
+                    // The current mantissa will fit entirely in the new mantissa:
+                    //  - insert most significant bits, then fill with zeros
+                    //  - `half_bit` and `sticky_bit` are zero
+                    //  - adjust `exp` accordingly
+                    let diff = Float::<E2, N2>::PREC - prec;
+                    for (i, b) in m.iter().enumerate() {
+                        m2.set(i + diff, *b);
+                    }
+
+                    exp -= diff as i64;
+                }
+                Ordering::Greater => {
+                    // Truncation will occur:
+                    //  - preserve the highest `Float::<E2, N2>::PREC` bits
+                    //  - the next bit is `half_bit`
+                    //  - if any of the remaining bits are high, set `sticky_bit` to 1
+                    //  - adjust exp accordingly
+                    let diff = prec - Float::<E2, N2>::PREC;
+                    if diff == 1 {
+                        // easy case:
+                        //  - `m2` is `m[1..PREC]`
+                        //  - half bit is m[0]
+                        //  - sticky_bit is 0
+                        m2 = m[1..prec].into();
+                        half_bit = m[0];
+                    } else if diff == 2 {
+                        // easy case:
+                        //  - `m2` is `m[2..PREC]`
+                        //  - half bit is m[1]
+                        //  - sticky bit is m[0]
+                        m2 = m[2..prec].into();
+                        half_bit = m[1];
+                        sticky_bit = m[0];
+                    } else {
+                        // hard case:
+                        //  - actually split the mantissa
+                        //  - `m2` is the high part
+                        //  - half bit is the MSB of the low part
+                        //  - sticky bit is OR of the rest of the low part
+                        let (low, high) = m.split_at(diff);
+                        let (low_rest, low_msb) = low.split_at(low.len() - 1);
+
+                        m2 = high.into();
+                        half_bit = low_msb[0];
+                        sticky_bit = low_rest.any();
+                    }
+
+                    exp += diff as i64;
+                }
             }
 
-            exp += diff as i64;
+            Float::<E2, N2>::round_finalize(s, exp, m2, half_bit, sticky_bit, rm)
         }
-
-        Float::<E2, N2>::round_finalize(s, exp, m2, half_bit, sticky_bit, rm)
     }
 
     // Returns true if the rounding information implies the mantissa,
@@ -629,6 +629,61 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 underflow: false,
                 inexact: half_bit || sticky_bit,
             },
+        }
+    }
+}
+
+// Rounding (casts)
+impl<const E: usize, const N: usize> Float<E, N> {
+    /// Multiplies this `Float` with another rounding it to the format
+    /// specified by `Float<E3, N3>` and rounding mode `rm`.
+    pub fn mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
+        &self,
+        other: &Float<E2, N2>,
+        rm: RoundingMode,
+    ) -> Float<E3, N3> {
+        if self.is_nan() {
+            // `self` is NaN
+            self.round(rm)
+        } else if other.is_nan() {
+            // `other` is NaN
+            other.round(rm)
+        } else if self.is_infinity() {
+            // `self` is +/- infinity
+            let sign = self.sign() != other.sign();
+            if other.is_zero() {
+                // `other` is +/- 0 => invalid
+                let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
+                let mut r = Float::<E3, N3>::nan(sign, true, payload);
+                r.flags.invalid = true;
+                r
+            } else {
+                // `other` is either finite or +/- infinity
+                Float::<E3, N3>::infinity(sign)
+            }
+        } else if other.is_infinity() {
+            // `other` is +/- infinity, `self` is either finite or +/- infinity
+            let sign = self.sign() != other.sign();
+            Float::<E3, N3>::infinity(sign)
+        } else {
+            // `self` and `other` are both finite
+            let (s1, exp1, c1) = match &self.num {
+                FloatNum::Number(s, exp, c) => (*s, *exp, c),
+                _ => panic!("called on a non-finite float"),
+            };
+
+            let (s2, exp2, c2) = match &other.num {
+                FloatNum::Number(s, exp, c) => (*s, *exp, c),
+                _ => panic!("called on a non-finite float"),
+            };
+
+            let u1 = bitvec_to_biguint(c1.clone());
+            let u2 = bitvec_to_biguint(c2.clone());
+
+            let s = s1 != s2;
+            let exp = exp1 + exp2;
+            let c = biguint_to_bitvec(u1 * u2, c1.len() + c2.len());
+            Float::<E3, N3>::round_finite(s, exp, c, rm)
         }
     }
 }

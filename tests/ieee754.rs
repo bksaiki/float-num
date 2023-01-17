@@ -398,3 +398,34 @@ fn sandbox() {
     let fp = Double::from(0.999999999999999888978);
     let fp2: Float<11, 61> = fp.round(RoundingMode::ToPositive);
 }
+
+#[test]
+fn test_mul_2_4_2_4_2_4() {
+    const E1: usize = 2;
+    const N1: usize = 4;
+    const E2: usize = 2;
+    const N2: usize = 4;
+    const E3: usize = 2;
+    const N3: usize = 4;
+    const RM: RoundingMode = RoundingMode::NearestEven;
+
+    type F1 = Float<E1, N1>;
+    type F2 = Float<E2, N2>;
+    type F3 = Float<E3, N3>;
+
+    for i in 0..u32::pow(2, F1::N as u32) {
+        let mut xv = BitVec::from_element(i);
+        xv.resize(F1::N, false);
+        let x = F1::from(xv.clone());
+        for j in 0..u32::pow(2, F2::N as u32) {
+            let mut yv = BitVec::from_element(j);
+            yv.resize(F2::N, false);
+            let y = F2::from(yv.clone());
+
+            let z: F3 = x.mul(&y, RM);
+            let zv: BitVec = z.into();
+
+            println!("{} * {} = {}", xv, yv, zv);
+        }
+    }
+}
