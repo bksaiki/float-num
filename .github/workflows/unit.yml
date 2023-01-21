@@ -3,7 +3,7 @@ name: Build and test the library
 on: [push]
 
 jobs:
-  build:
+  test:
     strategy:
       matrix:
         os: [ macos-latest, ubuntu-latest, windows-latest ]
@@ -23,6 +23,9 @@ jobs:
         run: cargo build --release
       - name: Test
         run: cargo test
+
+  linter:
+    steps:
       - name: Clippy
         run: cargo clippy -- -D warnings
       - name: Format
