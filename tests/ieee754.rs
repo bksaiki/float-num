@@ -54,7 +54,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        0,
+        -52,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -79,7 +79,7 @@ fn from_f64() {
     assert!(bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        0,
+        -52,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -154,7 +154,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1022,
+        -1074,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -174,7 +174,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1023,
+        -1075,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -194,7 +194,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1023,
+        -1075,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -214,7 +214,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        1023,
+        971,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -473,6 +473,10 @@ fn test_mul_2_4_2_4_2_4() {
 
 #[test]
 fn sandbox() {
-    let fp = Double::from(0.875);
-    let fp2: Float<2, 4> = fp.round(RoundingMode::NearestEven);
+    let a = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
+    let b = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
+    let r: Float<2, 4> = a.mul(&b, RoundingMode::NearestEven);
+
+    let bv: BitVec = r.into();
+    println!("{}", bv);
 }

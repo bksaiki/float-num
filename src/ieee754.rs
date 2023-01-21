@@ -66,7 +66,9 @@ fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
 ///   - _roundTowardZero_: rounds to the closest representable floating-point value
 ///     in the direction of zero.
 ///
-/// This module defines a sixth:
+/// This module defines two additional rounding modes:
+/// - _roundAwayZero_: rounds to the closest representable floating-point value
+///     away from zero, towards the nearest infinity.
 /// - _roundToOdd_: rounds to the closest representable floating-point value
 ///     whose mantissa has a least significant bit of 1.
 ///
@@ -198,7 +200,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Exponent of the smallest normal floating-point value in
     /// this representation when it is in the form `(-1)^s b^e c`
     /// where `c` is an integer.
-    /// This is just `Self::EMAX - Self::M`.
+    /// This is just `Self::EMIN - Self::M`.
     pub const EXPMIN: i64 = Self::EMIN - Self::M as i64;
 
     /// Bitwidth of the NaN payload.
@@ -300,7 +302,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a subnormal number
     pub fn is_subnormal(&self) -> bool {
         match &self.num {
-            FloatNum::Number(_, e, _) => *e < Self::EMIN,
+            FloatNum::Number(_, e, _) => *e < Self::EXPMIN,
             _ => false,
         }
     }
@@ -308,7 +310,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a normal number
     pub fn is_normal(&self) -> bool {
         match &self.num {
-            FloatNum::Number(_, e, c) => *e >= Self::EMIN && (*e != 0 || c.some()),
+            FloatNum::Number(_, e, c) => *e >= Self::EXPMIN && (*e != 0 || c.some()),
             _ => false,
         }
     }
@@ -566,8 +568,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
             // adjust if the exponent is too small
             // TODO: this is dumb
-            if exp < Float::<E2, N2>::EMIN {
-                while exp < Float::<E2, N2>::EMIN  - 1 {
+            if exp < Float::<E2, N2>::EXPMIN {
+                while exp < Float::<E2, N2>::EXPMIN  - 1 {
                     sticky_bit |= quarter_bit;
                     quarter_bit = half_bit;
                     half_bit = c_new[0];
@@ -662,7 +664,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     fn round_finalize(
         s: bool,
         mut exp: i64,
-        mut m: BitVec,
+        mut c: BitVec,
         half_bit: bool,
         quarter_bit: bool,
         sticky_bit: bool,
@@ -671,24 +673,24 @@ impl<const E: usize, const N: usize> Float<E, N> {
         // First, we check if we need to round away from zero.
         // We use the sign, rounding mode, LSB of the mantissa, and the two rounding bits.
         let qs_bit = quarter_bit || sticky_bit;
-        let increment = Self::round_requires_increment(s, m[0], half_bit, qs_bit, rm);
+        let increment = Self::round_requires_increment(s, c[0], half_bit, qs_bit, rm);
         if increment {
             // increment the mantissa
             // possibly need to adjust exponent (the exponent is unbounded)
-            let mut c = bitvec_to_biguint(m);
-            c.add_assign(1_u8);
-            let m_ext = biguint_to_bitvec(c, Self::PREC + 1);
-            let carry = m_ext[Self::PREC];
+            let mut i = bitvec_to_biguint(c);
+            i.add_assign(1_u8);
+            let c_ext = biguint_to_bitvec(i, Self::PREC + 1);
+            let carry = c_ext[Self::PREC];
 
-            m = m_ext[0..Self::PREC].into();
+            c = c_ext[0..Self::PREC].into();
             if carry {
-                m.set(Self::PREC - 1, true);
+                c.set(Self::PREC - 1, true);
                 exp += 1;
             }
         }
 
         // Next, we check if overflow occured and alter the result if it has.
-        if exp > Self::EMAX {
+        if exp > Self::EXPMAX {
             // overflow has occured
             // need to check which way we round
             if Self::overflow_to_infinity(s, rm) {
@@ -705,7 +707,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 };
             } else {
                 return Self {
-                    num: FloatNum::Number(s, Self::EMAX, bitvec![1; Self::PREC]),
+                    num: FloatNum::Number(s, Self::EXPMAX, bitvec![1; Self::PREC]),
                     flags: Exceptions {
                         invalid: false,
                         div_by_zero: false,
@@ -724,7 +726,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Ordering::Greater => false,
             Ordering::Less => true,
             Ordering::Equal => {
-                if increment && m[..Self::M].not_any() {
+                if increment && c[..Self::M].not_any() {
                     // result was rounded up to +/-MIN_NORM
                     // with unbounded exponent, would our rounded result have been different, i.e.,
                     // would the rounded result have been halfway between MIN_NORM and MAX_SUBNORM?
@@ -766,22 +768,22 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
         // Some sanity checking
         assert_eq!(
-            m.len(),
+            c.len(),
             Self::PREC,
             "unexpected mantissa width after rounding: {}, expected {}",
-            m.len(),
+            c.len(),
             Self::PREC
         );
         assert!(
-            (exp >= Self::EMIN - 1) && (exp <= Self::EMAX),
+            (exp >= Self::EXPMIN - 1) && (exp <= Self::EXPMAX),
             "unexpected exponent after rounding: {} [{}, {}]",
             exp,
-            Self::EMIN,
-            Self::EMAX
+            Self::EXPMIN,
+            Self::EXPMAX
         );
 
         Self {
-            num: FloatNum::Number(s, exp, m),
+            num: FloatNum::Number(s, exp, c),
             flags: Exceptions {
                 invalid: false,
                 div_by_zero: false,
@@ -870,7 +872,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 
         // split fields
         let (s, e, mut m) = Self::split_packed(&bv);
-        let exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias() - Self::M as i64;
+        let mut exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
 
         // branch on exponent
         if exp > Self::EMAX {
@@ -889,6 +891,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
             } else {
                 // subnormal
                 m.push(false);
+                exp -= Self::M as i64;
                 assert_eq!(m.len(), Self::PREC);
                 Self {
                     num: FloatNum::Number(s, exp, m),
@@ -898,6 +901,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
         } else {
             // normal
             m.push(true);
+            exp -= Self::M as i64;
             assert_eq!(m.len(), Self::PREC);
             Self {
                 num: FloatNum::Number(s, exp, m),
@@ -926,14 +930,14 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
                     let m = bitvec![0; Float::<E, N>::M];
                     let e = bitvec![0; E];
                     Float::<E, N>::pack_components(s, e, m)
-                } else if exp < Float::<E, N>::EMIN {
+                } else if exp < Float::<E, N>::EXPMIN {
                     // subnormal
                     let m: BitVec = m[..N - E - 1].into(); // remove leading 0
                     let e = bitvec![0; E];
                     Float::<E, N>::pack_components(s, e, m)
                 } else {
                     // normal
-                    let mut exponent = exp + Float::<E, N>::bias();
+                    let mut exponent = exp + Float::<E, N>::bias() + Float::<E, N>::M as i64;
                     let m: BitVec = m[..N - E - 1].into(); // remove leading 1
                     let mut e = bitvec![0; E];
                     for i in 0..E {
