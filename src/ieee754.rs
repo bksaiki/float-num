@@ -38,15 +38,17 @@ fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
     bv
 }
 
-// Specifies a rounding type.
-// Used for intermediate rounding.
-// Does not specify tie-breaking behavior.
-// enum RoundingDirection {
-//     Nearest,
-//     ToZero,
-//     AwayZero,
-//     Unknown,
-// }
+/// Rounding direction
+///
+/// Sometimes only a rounding direction is requires to specify
+/// a rounding behavior rather than a rounding mode.
+///
+pub enum RoundingDirection {
+    ToZero,
+    AwayZero,
+    ToEven,
+    ToOdd,
+}
 
 /// Rounding modes
 ///
@@ -84,6 +86,24 @@ pub enum RoundingMode {
     ToZero,
     AwayZero,
     ToOdd,
+}
+
+impl RoundingMode {
+    /// Translates a `RoundingMode` and sign bit to a `RoundingDirection`
+    /// and a boolean indicating if the direction only specifies tie-breaking behavior.
+    pub fn direction(&self, sign: bool) -> (bool, RoundingDirection) {
+        match (self, sign) {
+            (RoundingMode::NearestEven, _) => (true, RoundingDirection::ToEven),
+            (RoundingMode::NearestAway, _) => (true, RoundingDirection::AwayZero),
+            (RoundingMode::ToPositive, false) => (false, RoundingDirection::AwayZero),
+            (RoundingMode::ToPositive, true) => (false, RoundingDirection::ToZero),
+            (RoundingMode::ToNegative, false) => (false, RoundingDirection::ToZero),
+            (RoundingMode::ToNegative, true) => (false, RoundingDirection::AwayZero),
+            (RoundingMode::ToZero, _) => (false, RoundingDirection::ToZero),
+            (RoundingMode::AwayZero, _) => (false, RoundingDirection::AwayZero),
+            (RoundingMode::ToOdd, _) => (false, RoundingDirection::ToOdd),
+        }
+    }
 }
 
 /// Exception flags as specified by the IEEE-754 standard.
@@ -207,12 +227,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// This is just `Self::M - 1`.
     pub const NAN_PAYLOAD_SIZE: usize = Self::M - 1;
 
-    /// Returns the exponent bias.
+    /// The exponent field bias.
     /// This is just `Self::EMAX`.
-    #[inline(always)]
-    pub const fn bias() -> i64 {
-        Self::EMAX
-    }
+    pub const BIAS: i64 = Self::EMAX;
 }
 
 // Constructors and getters
@@ -559,7 +576,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
                         c_new = high.into();
                         half_bit = low[low_len - 1];
                         quarter_bit = low[low_len - 2];
-                        sticky_bit = low[.. low_len - 2].any();
+                        sticky_bit = low[..low_len - 2].any();
                     }
 
                     exp += diff as i64;
@@ -569,7 +586,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             // adjust if the exponent is too small
             // TODO: this is dumb
             if exp < Float::<E2, N2>::EXPMIN {
-                while exp < Float::<E2, N2>::EXPMIN  - 1 {
+                while exp < Float::<E2, N2>::EXPMIN - 1 {
                     sticky_bit |= quarter_bit;
                     quarter_bit = half_bit;
                     half_bit = c_new[0];
@@ -593,47 +610,44 @@ impl<const E: usize, const N: usize> Float<E, N> {
         sticky_bit: bool,
         rm: RoundingMode,
     ) -> bool {
-        match rm {
-            RoundingMode::NearestEven => {
+        match rm.direction(sign) {
+            (true, RoundingDirection::ToEven) => {
                 // no half bit => truncate
                 // half bit and sticky bit => increment
                 // tie => increment if lsb since we want it to be 0
                 half_bit && (sticky_bit || lsb)
             }
-            RoundingMode::NearestAway => {
+            (true, RoundingDirection::AwayZero) => {
                 // no half bit => truncate
                 // half bit => increment (tie requires increment)
                 half_bit
             }
-            RoundingMode::ToPositive => {
-                if sign {
-                    // negative => always truncate
-                    false
-                } else {
-                    // positive => increment if not exact
-                    half_bit || sticky_bit
-                }
+            (true, RoundingDirection::ToZero) => {
+                // (unused)
+                // tie => truncate
+                half_bit && sticky_bit
             }
-            RoundingMode::ToNegative => {
-                if sign {
-                    // negative => increment if not exact
-                    half_bit || sticky_bit
-                } else {
-                    // positive => always truncate
-                    false
-                }
+            (true, RoundingDirection::ToOdd) => {
+                // (unused)
+                // tie => increment if even
+                half_bit && !lsb
             }
-            RoundingMode::ToZero => {
-                // always truncate
-                false
-            }
-            RoundingMode::AwayZero => {
+            (false, RoundingDirection::AwayZero) => {
                 // increment if not exact
                 half_bit || sticky_bit
             }
-            RoundingMode::ToOdd => {
+            (false, RoundingDirection::ToZero) => {
+                // always truncate
+                false
+            }
+            (false, RoundingDirection::ToOdd) => {
                 // LSB of the mantissa needs to be 1
                 !lsb
+            }
+            (false, RoundingDirection::ToEven) => {
+                // (unused)
+                // LSB of the mantissa needs to be 0
+                lsb
             }
         }
     }
@@ -642,19 +656,17 @@ impl<const E: usize, const N: usize> Float<E, N> {
     // the result should be rounded to +/- infinity
     // (rather than +/- MAX_FLOAT).
     fn overflow_to_infinity(sign: bool, rm: RoundingMode) -> bool {
-        match rm {
-            // carry all overflows to infinity
-            RoundingMode::NearestEven => true,
-            RoundingMode::NearestAway => true,
-            // sign-dependent
-            RoundingMode::ToPositive => !sign,
-            RoundingMode::ToNegative => sign,
+        match rm.direction(sign) {
+            // nearest carries all overflows to infinity
+            (true, _) => true,
+            // nearest carries all overflows to infinity
+            (_, RoundingDirection::AwayZero) => true,
             // carry all overflows to MAX_FLOAT
-            RoundingMode::ToZero => false,
-            // carry all overflows to infinity
-            RoundingMode::AwayZero => true,
-            // only MAX_FLOAT has an odd mantissa bit
-            RoundingMode::ToOdd => false,
+            (_, RoundingDirection::ToZero) => false,
+            // MAX_FLOAT has an odd lsb
+            (_, RoundingDirection::ToEven) => true,
+            // MAX_FLOAT has an odd lsb
+            (_, RoundingDirection::ToOdd) => false,
         }
     }
 
@@ -727,34 +739,17 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Ordering::Less => true,
             Ordering::Equal => {
                 if increment && c[..Self::M].not_any() {
-                    // result was rounded up to +/-MIN_NORM
-                    // with unbounded exponent, would our rounded result have been different, i.e.,
-                    // would the rounded result have been halfway between MIN_NORM and MAX_SUBNORM?
-                    match rm {
+                    match rm.direction(s) {
                         // only if we were exactly 3/4 of the way to +/-MIN_NORM
-                        RoundingMode::NearestEven => half_bit && quarter_bit && !sticky_bit,
-                        RoundingMode::NearestAway => half_bit && quarter_bit && !sticky_bit,
-                        // sign-dependent
-                        RoundingMode::ToPositive => if s {
-                            // same as ToZero
-                            panic!("unreachable")
-                        } else {
-                            // same as AwayZero
-                            half_bit && qs_bit
-                        },
-                        RoundingMode::ToNegative => if !s {
-                            // same as ToZero
-                            panic!("unreachable")
-                        } else {
-                            // same as AwayZero
-                            half_bit && qs_bit
-                        },
+                        (true, _) => half_bit && quarter_bit && !sticky_bit,
                         // the result was exactly +/-MIN_NORM so we shouldn't be here
-                        RoundingMode::ToZero => panic!("unreachable"),
+                        (_, RoundingDirection::ToZero) => panic!("unreachable"),
                         // only if we were more than 1/2 of the way to +/- MIN_NORM
-                        RoundingMode::AwayZero => half_bit && qs_bit,
+                        (_, RoundingDirection::AwayZero) => half_bit && qs_bit,
+                        // only if we were more than 1/2 of the way to +/- MIN_NORM
+                        (_, RoundingDirection::ToEven) => half_bit && qs_bit,
                         // the result was exactly +/-MIN_NORM so we shouldn't be here
-                        RoundingMode::ToOdd => panic!("unreachable"),
+                        (_, RoundingDirection::ToOdd) => panic!("unreachable"),
                     }
                 } else {
                     // larger then MIN_NORM
@@ -872,7 +867,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 
         // split fields
         let (s, e, mut m) = Self::split_packed(&bv);
-        let mut exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
+        let mut exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::BIAS;
 
         // branch on exponent
         if exp > Self::EMAX {
@@ -937,7 +932,7 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
                     Float::<E, N>::pack_components(s, e, m)
                 } else {
                     // normal
-                    let mut exponent = exp + Float::<E, N>::bias() + Float::<E, N>::M as i64;
+                    let mut exponent = exp + Float::<E, N>::BIAS + Float::<E, N>::M as i64;
                     let m: BitVec = m[..N - E - 1].into(); // remove leading 1
                     let mut e = bitvec![0; E];
                     for i in 0..E {
