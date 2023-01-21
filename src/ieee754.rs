@@ -37,31 +37,31 @@ fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
     bv
 }
 
-/** Rounding modes
- *
- * The IEEE-754 standard specifies five rounding modes:
- *
- *  - two nearest modes:
- *    - _roundTiesToEven_: rounds to the nearest representable floating-point value.
- *       In this case there is a tie, round to the floating-point value whose
- *       mantissa has a least significant bit of 0.
- *    - _roundTiesToAway_: rounds to the nearest representable floating-point value.
- *       In this case there is a tie, round to the floating-point value with greater magnitude.
- *  - three directed modes:
- *    - _roundTowardPositive_: rounds to the closest representable floating-point value
- *      in the direction of positive infinity.
- *    - _roundTowardNegative_: rounds to the closest representable floating-point value
- *      in the direction of negative infinity.
- *    - _roundTowardZero_: rounds to the closest representable floating-point value
- *      in the direction of zero.
- *
- * This module defines a sixth:
- *  - _roundToOdd_: rounds to the closest representable floating-point value
- *      whose mantissa has a least significant bit of 1.
- *
- * The rounding behavior of zero, signed zero, positive infinity, negative infinity,
- * and all encodings of NaN  will be unaffected by rounding mode.
- */
+/// Rounding modes
+///
+/// The IEEE-754 standard specifies five rounding modes:
+///
+/// - two nearest modes:
+///   - _roundTiesToEven_: rounds to the nearest representable floating-point value.
+///      In this case there is a tie, round to the floating-point value whose
+///      mantissa has a least significant bit of 0.
+///   - _roundTiesToAway_: rounds to the nearest representable floating-point value.
+///      In this case there is a tie, round to the floating-point value with greater magnitude.
+/// - three directed modes:
+///   - _roundTowardPositive_: rounds to the closest representable floating-point value
+///     in the direction of positive infinity.
+///   - _roundTowardNegative_: rounds to the closest representable floating-point value
+///     in the direction of negative infinity.
+///   - _roundTowardZero_: rounds to the closest representable floating-point value
+///     in the direction of zero.
+///
+/// This module defines a sixth:
+/// - _roundToOdd_: rounds to the closest representable floating-point value
+///     whose mantissa has a least significant bit of 1.
+///
+/// The rounding behavior of zero, signed zero, positive infinity, negative infinity,
+/// and all encodings of NaN  will be unaffected by rounding mode.
+///
 #[derive(Copy, Clone)]
 pub enum RoundingMode {
     NearestEven,
@@ -81,24 +81,28 @@ pub enum RoundingMode {
 //     AwayZero,
 // }
 
-/** Exception flags as specified by the IEEE-754 standard.
- *
- * Besides returning a (possibly) numerical result, any computation with
- * floating-point numbers may also raise exceptions depending on certain conditions.
- * These exceptions include:
- *
- *  - _invalid operation_: no useful definable result;
- *  - _division by zero_: an infinite result for finite arguments;
- *  - _overflow_: result exceeded in magnitude what would have been the rounded result
- *      had the exponent range been unbounded;
- *  - _underflow_: non-zero result that either (a) would lie strictly between
- *      `-b^emin` and `+b^emin` had the exponent range been unbounded,
- *      or (b) would lie strictly between `-b^emin` and `+b^emin`
- *      had the exponent range and precision been unbounded;
- *  - _inexact_: result would be different had both the exponent range
- *      and precision been unbounded.
- *
- */
+/// Exception flags as specified by the IEEE-754 standard.
+///
+/// Besides returning a (possibly) numerical result, any computation with
+/// floating-point numbers may also raise exceptions depending on certain conditions.
+/// These exceptions include:
+///
+/// - _invalid operation_: no useful definable result;
+/// - _division by zero_: an infinite result for finite arguments;
+/// - _overflow_: result exceeded in magnitude what would have been the rounded result
+///     had the exponent range been unbounded;
+/// - _underflow_: non-zero result that either (a) would lie strictly between
+///     `-b^emin` and `+b^emin` had the exponent range been unbounded,
+///     or (b) would lie strictly between `-b^emin` and `+b^emin`
+///     had the exponent range and precision been unbounded;
+/// - _inexact_: result would be different had both the exponent range
+///     and precision been unbounded.
+///
+/// This module defines a sixth:
+/// - _carry_: the exponent of the rounded result when in the form `(-1)^s x c x b^e`
+///     is different than the real result. In particular, it was incremented
+///     by 1 by the rounding operation.
+///
 #[derive(Copy, Clone, Default)]
 pub struct Exceptions {
     /// The _invalid operation_ flag.
@@ -111,6 +115,8 @@ pub struct Exceptions {
     pub underflow: bool,
     /// The _inexact_ flag.
     pub inexact: bool,
+    /// The _carry_ flag.
+    pub carry: bool,
 }
 
 // Minimal floating-point encoding grouped by classification
@@ -126,12 +132,11 @@ enum FloatNum {
     Nan(bool, bool, BitVec),
 }
 
-/** A floating-point number as specified by the IEEE-754 standard.
- *
- * The generics `E` and `N` specify the number of bits in the
- * exponent field and in the entire float overall.
- *
- */
+/// A floating-point number as specified by the IEEE-754 standard.
+///
+/// The generics `E` and `N` specify the number of bits in the
+/// exponent field and in the entire float overall.
+///
 pub struct Float<const E: usize, const N: usize> {
     num: FloatNum,     // number encoding
     flags: Exceptions, // exceptions
@@ -356,6 +361,12 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn inexact_flag(&self) -> bool {
         self.flags.inexact
     }
+
+    /// Returns true if the `carry` flag was raised
+    /// during the operation that created this `Float`.
+    pub fn carry_flag(&self) -> bool {
+        self.flags.carry
+    }
 }
 
 // Utility
@@ -464,6 +475,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
         rm: RoundingMode,
     ) -> Float<E2, N2> {
         if exp == 0 && c.not_any() {
+            // The exceptional case: exact zero
+            // Return zero, no exception flags are raised
             Float::<E2, N2>::zero(s)
         } else {
             // We will construct the new mantissa with two rounding bits (RS).
@@ -534,6 +547,18 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 }
             }
 
+            // adjust if the exponent is too small
+            // TODO: this is dumb
+            if exp < Float::<E2, N2>::EMIN {
+                while exp < Float::<E2, N2>::EMIN  - 1 {
+                    sticky_bit |= half_bit;
+                    half_bit = c_new[0];
+                    c_new.shift_left(1);
+                    exp += 1;
+                }
+            }
+
+            // finish the rounding process with all the rounding information
             Float::<E2, N2>::round_finalize(s, exp, c_new, half_bit, sticky_bit, rm)
         }
     }
@@ -588,8 +613,27 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
+    // Assuming overflow has occured, return true if
+    // the result should be rounded to +/- infinity
+    // (rather than +/- MAX_FLOAT).
+    fn overflow_to_infinity(sign: bool, rm: RoundingMode) -> bool {
+        match rm {
+            // carry all overflows to infinity
+            RoundingMode::NearestEven => true,
+            RoundingMode::NearestAway => true,
+            // sign-dependent
+            RoundingMode::ToPositive => !sign,
+            RoundingMode::ToNegative => sign,
+            // carry all overflows to MAX_FLOAT
+            RoundingMode::ToZero => false,
+            // only MAX_FLOAT has an odd mantissa bit
+            RoundingMode::ToOdd => false,
+        }
+    }
+
     // Constructs a new `Float` based on rounding information.
     // Requires a sign, mantissa, exponent, half bit, and sticky bit
+    // The inputs must encode a non-zero, finite number.
     fn round_finalize(
         s: bool,
         mut exp: i64,
@@ -598,10 +642,13 @@ impl<const E: usize, const N: usize> Float<E, N> {
         sticky_bit: bool,
         rm: RoundingMode,
     ) -> Self {
+
+        // First, we check if we need to round away from zero.
+        // We use the sign, rounding mode, LSB of the mantissa, and the two rounding bits.
         let increment = Self::round_requires_increment(s, m[0], half_bit, sticky_bit, rm);
         if increment {
             // increment the mantissa
-            // possibly need to adjust exponent
+            // possibly need to adjust exponent (the exponent is unbounded)
             let mut c = bitvec_to_biguint(m);
             c.add_assign(1_u8);
             let m_ext = biguint_to_bitvec(c, Self::PREC + 1);
@@ -614,12 +661,69 @@ impl<const E: usize, const N: usize> Float<E, N> {
             }
         }
 
+        // Next, we check if overflow occured and alter the result if it has.
+        if exp > Self::EMAX {
+            // overflow has occured
+            // need to check which way we round
+            if Self::overflow_to_infinity(s, rm) {
+                return Self {
+                    num: FloatNum::Infinity(s),
+                    flags: Exceptions {
+                        invalid: false,
+                        div_by_zero: false,
+                        overflow: true,
+                        underflow: false,
+                        inexact: true,
+                        carry: increment,
+                    },
+                };
+            } else {
+                return Self {
+                    num: FloatNum::Number(s, Self::EMAX, bitvec![1; Self::PREC]),
+                    flags: Exceptions {
+                        invalid: false,
+                        div_by_zero: false,
+                        overflow: true,
+                        underflow: false,
+                        inexact: true,
+                        carry: increment,
+                    },
+                };
+            }
+        }
+
+        // Next, we check if underflow may have occured
+        // The underflow exception is only raised if the inexact exception is also raised.
+        let underflow = match exp.cmp(&Self::EMIN) {
+            Ordering::Greater => false,
+            Ordering::Less => true,
+            Ordering::Equal => m.not_any() && match rm {
+                // nearest
+                RoundingMode::NearestEven => half_bit && sticky_bit,
+                RoundingMode::NearestAway => todo!(),
+                _ => todo!(),
+            }
+        };
+
+        println!("{} {} {} {} {}", exp, m, half_bit, sticky_bit, underflow); 
+
+        // The inexact flag is just if either of the rounding bits are high
+        let inexact = half_bit || sticky_bit;
+
+        // Some sanity checking
         assert_eq!(
             m.len(),
             Self::PREC,
             "unexpected mantissa width after rounding: {}, expected {}",
             m.len(),
             Self::PREC
+        );
+        assert!(
+            (exp >= Self::EMIN - 1) && (exp <= Self::EMAX),
+            "unexpected exponent after rounding: {} [{}, {}]",
+            exp,
+            Self::EMIN,
+            Self::EMAX
         );
 
         Self {
@@ -628,8 +732,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 invalid: false,
                 div_by_zero: false,
                 overflow: false,
-                underflow: false,
-                inexact: half_bit || sticky_bit,
+                underflow: underflow && inexact,
+                inexact,
+                carry: increment,
             },
         }
     }
@@ -711,7 +816,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 
         // split fields
         let (s, e, mut m) = Self::split_packed(&bv);
-        let exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
+        let exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias() - Self::M as i64;
 
         // branch on exponent
         if exp > Self::EMAX {

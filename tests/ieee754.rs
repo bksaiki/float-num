@@ -473,6 +473,6 @@ fn test_mul_2_4_2_4_2_4() {
 
 #[test]
 fn sandbox() {
-    let fp = Double::from(1.25986739689517868765e-321);
-    let fp2: Float::<11, 61> = fp.round(RoundingMode::NearestAway);
+    let fp = Double::from(0.88);
+    let fp2: Float<2, 4> = fp.round(RoundingMode::NearestEven);
 }
