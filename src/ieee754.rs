@@ -1,17 +1,19 @@
 use num_bigint::BigUint;
 use std::ops::ShlAssign;
 
+use crate::number::Number;
+
 mod arithmetic;
-mod rounding;
 mod conversions;
 mod number;
+mod rounding;
 
-pub type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
-pub type Lsb0 = bitvec::prelude::Lsb0;
+pub(crate) type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
+pub(crate) type Lsb0 = bitvec::prelude::Lsb0;
 
 // Converts a `BitVec` to `BitUint`
 // TODO: this is really dumb
-fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
+pub(crate) fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
     let mut i = BigUint::default();
     bv.reverse();
     for b in bv {
@@ -23,7 +25,7 @@ fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
 
 // Converts a `BitUint` to `BitVec`
 // TODO: this is really dumb
-fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
+pub(crate) fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
     let mut bv = BitVec::from_vec(i.to_u32_digits());
     bv.resize(width, false);
     bv
@@ -135,6 +137,7 @@ enum FloatNum {
 /// The generics `E` and `N` specify the number of bits in the
 /// exponent field and in the entire float overall.
 ///
+#[derive(Clone)]
 pub struct Float<const E: usize, const N: usize> {
     num: FloatNum,     // number encoding
     flags: Exceptions, // exceptions

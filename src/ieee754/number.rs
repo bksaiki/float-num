@@ -27,6 +27,17 @@ macro_rules! assert_valid_format {
     };
 }
 
+// Implementing `Clone` for `FloatNum`
+impl Clone for FloatNum {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Number(s, e, c) => Self::Number(*s, *e, c.clone()),
+            Self::Infinity(s) => Self::Infinity(*s),
+            Self::Nan(s, signal, payload) => Self::Nan(*s, *signal, payload.clone()),
+        }
+    }
+}
+
 // Format parameters
 impl<const E: usize, const N: usize> Float<E, N> {
     /// Bitwidth of the representation.
@@ -153,13 +164,11 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
-    /// Returns true if this `Float` encodes a zero.
-    pub fn is_zero(&self) -> bool {
-        match &self.num {
-            FloatNum::Number(_, e, c) => *e == 0 && c.not_any(),
-            _ => false,
-        }
-    }
+    // All implemented for the `Number` trait.
+    // pub fn is_zero(&self) -> bool
+    // pub fn is_infinity(&self) -> bool
+    // pub fn is_nan(&self) -> bool
+    /// Returns true if this `Float` encodes an infinity.
 
     /// Returns true if this `Float` encodes a subnormal number
     pub fn is_subnormal(&self) -> bool {
@@ -175,16 +184,6 @@ impl<const E: usize, const N: usize> Float<E, N> {
             FloatNum::Number(_, e, c) => *e >= Self::EXPMIN && (*e != 0 || c.some()),
             _ => false,
         }
-    }
-
-    /// Returns true if this `Float` encodes an infinity.
-    pub fn is_infinity(&self) -> bool {
-        matches!(self.num, FloatNum::Infinity(_))
-    }
-
-    /// Returns true if this `Float` encodes a NaN.
-    pub fn is_nan(&self) -> bool {
-        matches!(self.num, FloatNum::Nan(_, _, _))
     }
 
     /// Returns true if this `Float` encodes a signaling NaN.
@@ -252,5 +251,34 @@ impl<const E: usize, const N: usize> Float<E, N> {
 impl<const E: usize, const N: usize> Default for Float<E, N> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// Implementing `Number` for `Float`
+impl<const E: usize, const N: usize> Number for Float<E, N> {
+    fn is_zero(&self) -> bool {
+        match &self.num {
+            FloatNum::Number(_, e, c) => *e == 0 && c.not_any(),
+            _ => false,
+        }
+    }
+
+    fn is_infinity(&self) -> bool {
+        matches!(self.num, FloatNum::Infinity(_))
+    }
+
+    fn is_nan(&self) -> bool {
+        matches!(self.num, FloatNum::Nan(_, _, _))
+    }
+
+    fn is_finite(&self) -> bool {
+        match &self.num {
+            FloatNum::Number(_, e, _) => *e != 0,
+            _ => false,
+        }
+    }
+
+    fn is_rational(&self) -> bool {
+        true
     }
 }

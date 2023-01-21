@@ -2,8 +2,8 @@
     Conversions to and from `Float<E, N>`
 */
 
-use num_traits::cast::ToPrimitive;
 use bitvec::field::BitField;
+use num_traits::cast::ToPrimitive;
 
 use super::*;
 

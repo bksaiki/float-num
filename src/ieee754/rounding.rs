@@ -2,8 +2,8 @@
     Rounding
 */
 
-use std::ops::AddAssign;
 use std::cmp::Ordering;
+use std::ops::AddAssign;
 
 use super::*;
 
