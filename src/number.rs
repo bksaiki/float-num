@@ -2,8 +2,9 @@
     Defines a number
 */
 
-/// The number type, the central type of this library.
+/// The number type.
 ///
+/// The central type of this library.
 /// A `Number` encodes a number with some exceptions, say NaN from IEEE-754.
 /// This is just a bare-bones storage type
 pub trait Number: Clone + Default {

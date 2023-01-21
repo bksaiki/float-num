@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 use std::ops::AddAssign;
 
-use super::*;
+use crate::{ieee754::*, Context};
 
 macro_rules! bitvec {
     [ $($t:tt)* ] => {
@@ -33,12 +33,22 @@ impl RoundingMode {
     }
 }
 
+// Implementing IEEEContext
+impl IEEEContext {
+    /// Creates a new rounding context for `Float`s.
+    pub fn new(rm: RoundingMode, ftz: bool) -> Self {
+        Self { rm, ftz }
+    }
+}
+
+impl Context for IEEEContext {}
+
 // Rounding (casts)
 impl<const E: usize, const N: usize> Float<E, N> {
     /// Rounds this `Float` to the representation specified by `Float<E2, N2>`.
-    pub fn round<const E2: usize, const N2: usize>(&self, rm: RoundingMode) -> Float<E2, N2> {
+    pub fn round<const E2: usize, const N2: usize>(&self, ctx: &IEEEContext) -> Float<E2, N2> {
         match &self.num {
-            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), rm),
+            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), ctx),
             FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
             FloatNum::Nan(s, signal, payload) => {
                 let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
@@ -72,7 +82,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
         s: bool,
         mut exp: i64,
         c: BitVec,
-        rm: RoundingMode,
+        ctx: &IEEEContext,
     ) -> Float<E2, N2> {
         if exp == 0 && c.not_any() {
             // The exceptional case: exact zero
@@ -162,7 +172,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             }
 
             // finish the rounding process with all the rounding information
-            Float::<E2, N2>::round_finalize(s, exp, c_new, half_bit, quarter_bit, sticky_bit, rm)
+            Float::<E2, N2>::round_finalize(s, exp, c_new, half_bit, quarter_bit, sticky_bit, ctx)
         }
     }
 
@@ -246,12 +256,12 @@ impl<const E: usize, const N: usize> Float<E, N> {
         half_bit: bool,
         quarter_bit: bool,
         sticky_bit: bool,
-        rm: RoundingMode,
+        ctx: &IEEEContext,
     ) -> Self {
         // First, we check if we need to round away from zero.
         // We use the sign, rounding mode, LSB of the mantissa, and the two rounding bits.
         let qs_bit = quarter_bit || sticky_bit;
-        let increment = Self::round_requires_increment(s, c[0], half_bit, qs_bit, rm);
+        let increment = Self::round_requires_increment(s, c[0], half_bit, qs_bit, ctx.rm);
         if increment {
             // increment the mantissa
             // possibly need to adjust exponent (the exponent is unbounded)
@@ -271,7 +281,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
         if exp > Self::EXPMAX {
             // overflow has occured
             // need to check which way we round
-            if Self::overflow_to_infinity(s, rm) {
+            if Self::overflow_to_infinity(s, ctx.rm) {
                 return Self {
                     num: FloatNum::Infinity(s),
                     flags: Exceptions {
@@ -305,7 +315,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Ordering::Less => true,
             Ordering::Equal => {
                 if increment && c[..Self::M].not_any() {
-                    match rm.direction(s) {
+                    match ctx.rm.direction(s) {
                         // only if we were exactly 3/4 of the way to +/-MIN_NORM
                         (true, _) => half_bit && quarter_bit && !sticky_bit,
                         // the result was exactly +/-MIN_NORM so we shouldn't be here

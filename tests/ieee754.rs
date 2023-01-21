@@ -1,5 +1,6 @@
 use bitvec::prelude::Lsb0;
 use float_sim::ieee754::*;
+use float_sim::Number;
 
 type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 
@@ -419,7 +420,8 @@ fn conversions_8_16() {
 
 #[test]
 fn round_trivial() {
-    let rm = RoundingMode::NearestEven;
+    let ctx = IEEEContext::new(RoundingMode::NearestEven, false);
+
     let fps = [
         0.0,
         -0.0,
@@ -431,8 +433,8 @@ fn round_trivial() {
 
     for fp in fps {
         let fp = Double::from(fp);
-        let fp128: Quad = fp.round(rm);
-        let fp2: Double = fp128.round(rm);
+        let fp128: Quad = fp.round(&ctx);
+        let fp2: Double = fp128.round(&ctx);
 
         let bv: BitVec = fp.into();
         let bv2: BitVec = fp2.into();
@@ -454,6 +456,8 @@ fn test_mul_2_4_2_4_2_4() {
     type F2 = Float<E2, N2>;
     type F3 = Float<E3, N3>;
 
+    let ctx = IEEEContext::new(RM, false);
+
     for i in 0..u32::pow(2, F1::N as u32) {
         let mut xv = BitVec::from_element(i);
         xv.resize(F1::N, false);
@@ -463,7 +467,7 @@ fn test_mul_2_4_2_4_2_4() {
             yv.resize(F2::N, false);
             let y = F2::from(yv.clone());
 
-            let z: F3 = x.mul(&y, RM);
+            let z: F3 = x.mul(&y, &ctx);
             let zv: BitVec = z.into();
 
             println!("{} * {} = {}", xv, yv, zv);
@@ -473,9 +477,10 @@ fn test_mul_2_4_2_4_2_4() {
 
 #[test]
 fn sandbox() {
+    let ctx = IEEEContext::new(RoundingMode::NearestEven, false);
     let a = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
     let b = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
-    let r: Float<2, 4> = a.mul(&b, RoundingMode::NearestEven);
+    let r: Float<2, 4> = a.mul(&b, &ctx);
 
     let bv: BitVec = r.into();
     println!("{}", bv);

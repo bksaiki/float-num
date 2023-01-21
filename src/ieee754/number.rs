@@ -2,7 +2,7 @@
     Definition of `Float<E, N>` struct
 */
 
-use super::*;
+use crate::ieee754::*;
 
 macro_rules! bitvec {
     [ $($t:tt)* ] => {

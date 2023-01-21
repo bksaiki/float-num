@@ -1,12 +1,12 @@
 use num_bigint::BigUint;
 use std::ops::ShlAssign;
 
-use crate::number::Number;
+use crate::Number;
 
 mod arithmetic;
-mod conversions;
+mod convert;
 mod number;
-mod rounding;
+mod round;
 
 pub(crate) type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 pub(crate) type Lsb0 = bitvec::prelude::Lsb0;
@@ -79,6 +79,13 @@ pub enum RoundingMode {
     ToZero,
     AwayZero,
     ToOdd,
+}
+
+/// The default rounding context for IEEE-754 numbers
+#[derive(Copy, Clone)]
+pub struct IEEEContext {
+    pub rm: RoundingMode,
+    pub ftz: bool,
 }
 
 /// Exception flags as specified by the IEEE-754 standard.

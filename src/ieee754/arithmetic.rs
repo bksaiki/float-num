@@ -19,14 +19,14 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
         &self,
         other: &Float<E2, N2>,
-        rm: RoundingMode,
+        ctx: &IEEEContext,
     ) -> Float<E3, N3> {
         if self.is_nan() {
             // `self` is NaN
-            self.round(rm)
+            self.round(ctx)
         } else if other.is_nan() {
             // `other` is NaN
-            other.round(rm)
+            other.round(ctx)
         } else if self.is_infinity() {
             // `self` is +/- infinity
             let sign = self.sign() != other.sign();
@@ -62,7 +62,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             let s = s1 != s2;
             let exp = exp1 + exp2;
             let c = biguint_to_bitvec(u1 * u2, c1.len() + c2.len());
-            Float::<E3, N3>::round_finite(s, exp, c, rm)
+            Float::<E3, N3>::round_finite(s, exp, c, ctx)
         }
     }
 }
