@@ -102,9 +102,7 @@ fn from_f64() {
         "conversion from f64 failed (class): {:.20e}",
         fp
     );
-    assert_eq!(
-        bv.sign(),
-        false,
+    assert!(!bv.sign(),
         "conversion from f64 failed (sign): {:.20e}",
         fp
     );
@@ -127,9 +125,7 @@ fn from_f64() {
         "conversion from f64 failed (class): {:.20e}",
         fp
     );
-    assert_eq!(
-        !bv.sign(),
-        false,
+    assert!(bv.sign(),
         "conversion from f64 failed (sign): {:.20e}",
         fp
     );

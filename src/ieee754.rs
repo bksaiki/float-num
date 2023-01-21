@@ -158,3 +158,5 @@ pub type Double = Float<11, 64>;
 pub type Single = Float<8, 32>;
 /// Alias for `Float<5, 16>` (half-precision number)
 pub type Half = Float<5, 16>;
+/// Alias for `Float<8, 16>` (BFLOAT16 number)
+pub type BF16 = Float<8, 16>;
