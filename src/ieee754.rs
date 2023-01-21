@@ -8,12 +8,12 @@ mod convert;
 mod number;
 mod round;
 
-pub(crate) type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
-pub(crate) type Lsb0 = bitvec::prelude::Lsb0;
+pub(self) type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
+pub(self) type Lsb0 = bitvec::prelude::Lsb0;
 
 // Converts a `BitVec` to `BitUint`
 // TODO: this is really dumb
-pub(crate) fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
+pub(self) fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
     let mut i = BigUint::default();
     bv.reverse();
     for b in bv {
@@ -25,7 +25,7 @@ pub(crate) fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
 
 // Converts a `BitUint` to `BitVec`
 // TODO: this is really dumb
-pub(crate) fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
+pub(self) fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
     let mut bv = BitVec::from_vec(i.to_u32_digits());
     bv.resize(width, false);
     bv

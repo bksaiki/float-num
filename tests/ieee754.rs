@@ -1,5 +1,6 @@
 use bitvec::prelude::Lsb0;
 use float_sim::ieee754::*;
+use float_sim::ops::*;
 use float_sim::Number;
 
 type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;

@@ -2,7 +2,7 @@
     Arithmetic
 */
 
-use super::*;
+use crate::{ieee754::*, ops::*};
 
 macro_rules! bitvec {
     [ $($t:tt)* ] => {

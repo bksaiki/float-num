@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 use std::ops::AddAssign;
 
-use crate::{ieee754::*, Context};
+use crate::{ieee754::*, ops::*, Context};
 
 macro_rules! bitvec {
     [ $($t:tt)* ] => {
@@ -43,39 +43,8 @@ impl IEEEContext {
 
 impl Context for IEEEContext {}
 
-// Rounding (casts)
+// Rounding utilities
 impl<const E: usize, const N: usize> Float<E, N> {
-    /// Rounds this `Float` to the representation specified by `Float<E2, N2>`.
-    pub fn round<const E2: usize, const N2: usize>(&self, ctx: &IEEEContext) -> Float<E2, N2> {
-        match &self.num {
-            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), ctx),
-            FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
-            FloatNum::Nan(s, signal, payload) => {
-                let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
-                    // expand the payload with zeros
-                    // payload is put in the most signficant bits
-                    let diff = Float::<E2, N2>::NAN_PAYLOAD_SIZE - Self::NAN_PAYLOAD_SIZE;
-                    let mut p = BitVec::repeat(false, Float::<E2, N2>::NAN_PAYLOAD_SIZE);
-                    for (i, b) in payload.iter().enumerate() {
-                        p.set(diff + i, *b);
-                    }
-                    p
-                } else {
-                    // truncate the payload
-                    // only keep the most signficant bits
-                    let size = Float::<E2, N2>::NAN_PAYLOAD_SIZE;
-                    let diff = Self::NAN_PAYLOAD_SIZE - size;
-                    let mut p = BitVec::repeat(false, size);
-                    for i in 0..size {
-                        p.set(i, *payload.get(i + diff).unwrap());
-                    }
-                    p
-                };
-                Float::<E2, N2>::nan(*s, *signal, payload)
-            }
-        }
-    }
-
     // Rounds a finite, non-zero number in the representation specified
     // by `Float<E2, N2>` using the rounding mode `rm`.
     pub(crate) fn round_finite<const E2: usize, const N2: usize>(
@@ -363,6 +332,41 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 inexact,
                 carry: increment,
             },
+        }
+    }
+}
+
+// Implementing `Round<N>` for `Float`
+impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Float<E2, N2>>
+    for Float<E, N>
+{
+    fn round(&self, ctx: &Self::Ctx) -> Float<E2, N2> {
+        match &self.num {
+            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), &ctx),
+            FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
+            FloatNum::Nan(s, signal, payload) => {
+                let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
+                    // expand the payload with zeros
+                    // payload is put in the most signficant bits
+                    let diff = Float::<E2, N2>::NAN_PAYLOAD_SIZE - Self::NAN_PAYLOAD_SIZE;
+                    let mut p = BitVec::repeat(false, Float::<E2, N2>::NAN_PAYLOAD_SIZE);
+                    for (i, b) in payload.iter().enumerate() {
+                        p.set(diff + i, *b);
+                    }
+                    p
+                } else {
+                    // truncate the payload
+                    // only keep the most signficant bits
+                    let size = Float::<E2, N2>::NAN_PAYLOAD_SIZE;
+                    let diff = Self::NAN_PAYLOAD_SIZE - size;
+                    let mut p = BitVec::repeat(false, size);
+                    for i in 0..size {
+                        p.set(i, *payload.get(i + diff).unwrap());
+                    }
+                    p
+                };
+                Float::<E2, N2>::nan(*s, *signal, payload)
+            }
         }
     }
 }
