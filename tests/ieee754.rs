@@ -3,6 +3,14 @@ use float_sim::ieee754::*;
 
 type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 
+macro_rules! bitvec {
+    [ $($t:tt)* ] => {
+        {
+            bitvec::bitvec![u32, Lsb0; $($t)*]
+        }
+    };
+}
+
 #[test]
 fn parameters() {
     assert_eq!(Quad::E, 15);
@@ -166,7 +174,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1024,
+        -1023,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -186,7 +194,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1075,
+        -1023,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -301,6 +309,45 @@ fn to_f64() {
 }
 
 #[test]
+fn classify() {
+    let flag_names = [
+        "is_nan",
+        "is_infinity",
+        "is_zero",
+        "is_normal",
+        "is_subnormal",
+    ];
+    let tests = [
+        (
+            Double::nan(false, false, bitvec![0; Double::NAN_PAYLOAD_SIZE]),
+            "nan",
+            0,
+        ),
+        (Double::infinity(false), "infinity", 1),
+        (Double::zero(false), "zero", 2),
+        (Double::from(1.0), "normal", 3),
+        (Double::from(1e-310), "subnormal", 4),
+    ];
+
+    for (fp, name, idx) in tests {
+        let flags = [
+            fp.is_nan(),
+            fp.is_infinity(),
+            fp.is_zero(),
+            fp.is_normal(),
+            fp.is_subnormal(),
+        ];
+        for (i, f) in flags.iter().enumerate() {
+            if i == idx {
+                assert!(*f, "classify failed ({}, {})", name, flag_names[i]);
+            } else {
+                assert!(!*f, "classify failed ({}, {})", name, flag_names[i]);
+            }
+        }
+    }
+}
+
+#[test]
 fn conversions_2_4() {
     const E: usize = 2;
     const N: usize = 4;
@@ -394,12 +441,6 @@ fn round_trivial() {
 }
 
 #[test]
-fn sandbox() {
-    let fp = Double::from(0.999999999999999888978);
-    let fp2: Float<11, 61> = fp.round(RoundingMode::ToPositive);
-}
-
-#[test]
 fn test_mul_2_4_2_4_2_4() {
     const E1: usize = 2;
     const N1: usize = 4;
@@ -428,4 +469,10 @@ fn test_mul_2_4_2_4_2_4() {
             println!("{} * {} = {}", xv, yv, zv);
         }
     }
+}
+
+#[test]
+fn sandbox() {
+    let fp = Double::from(1.25986739689517868765e-321);
+    let fp2: Float::<11, 61> = fp.round(RoundingMode::NearestAway);
 }

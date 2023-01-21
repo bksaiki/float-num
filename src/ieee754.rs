@@ -225,16 +225,17 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
     /// Returns an NaN value based on the specified sign, signaling status
     /// and payload using the same width parameters as this `Float`.
-    pub fn nan(sign: bool, signaling: bool, payload: BitVec) -> Self {
+    pub fn nan(sign: bool, signaling: bool, payload: impl Into<BitVec>) -> Self {
+        let bv = payload.into();
         assert_eq!(
-            payload.len(),
+            bv.len(),
             Self::NAN_PAYLOAD_SIZE,
             "expected a payload size of {}, received {}",
             Self::NAN_PAYLOAD_SIZE,
-            payload.len()
+            bv.len()
         );
         Self {
-            num: FloatNum::Nan(sign, signaling, payload),
+            num: FloatNum::Nan(sign, signaling, bv),
             flags: Exceptions::default(),
         }
     }
@@ -279,7 +280,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a subnormal number
     pub fn is_subnormal(&self) -> bool {
         match &self.num {
-            FloatNum::Number(_, e, _) => *e != 0 && *e < Self::EMIN,
+            FloatNum::Number(_, e, _) => *e < Self::EMIN,
             _ => false,
         }
     }
@@ -287,7 +288,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns true if this `Float` encodes a normal number
     pub fn is_normal(&self) -> bool {
         match &self.num {
-            FloatNum::Number(_, e, _) => *e >= Self::EMIN,
+            FloatNum::Number(_, e, c) => *e >= Self::EMIN && (*e != 0 || c.some()),
             _ => false,
         }
     }
@@ -426,7 +427,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Rounds this `Float` to the representation specified by `Float<E2, N2>`.
     pub fn round<const E2: usize, const N2: usize>(&self, rm: RoundingMode) -> Float<E2, N2> {
         match &self.num {
-            FloatNum::Number(s, exp, c) => Float::<E2, N2>::round_finite(*s, *exp, c.clone(), rm),
+            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), rm),
             FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
             FloatNum::Nan(s, signal, payload) => {
                 let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
@@ -459,40 +460,41 @@ impl<const E: usize, const N: usize> Float<E, N> {
     fn round_finite<const E2: usize, const N2: usize>(
         s: bool,
         mut exp: i64,
-        m: BitVec,
+        c: BitVec,
         rm: RoundingMode,
     ) -> Float<E2, N2> {
-        let prec = m.len();
-        if exp == 0 && m.not_any() {
+        if exp == 0 && c.not_any() {
             Float::<E2, N2>::zero(s)
         } else {
             // We will construct the new mantissa with two rounding bits (RS).
             // Then we'll call the (rounding) finalizer to complete the rounding
             // process and raise the correct exception flags.
-            let mut m2 = BitVec::repeat(false, Float::<E2, N2>::PREC);
+            let mut c_new = bitvec![0; Float::<E2, N2>::PREC];
             let mut half_bit = false;
             let mut sticky_bit = false;
+            let prec = c.len();
 
-            match prec.cmp(&Float::<E2, N2>::PREC) {
+            // Branch on mantissa size comparison
+            match Float::<E2, N2>::PREC.cmp(&prec) {
                 Ordering::Equal => {
                     // The current mantissa is the new mantissa
                     //  - `half_bit` and `sticky_bit` are zero
                     //  - preserve the mantissa and exponent
-                    m2 = m;
+                    c_new = c;
                 }
-                Ordering::Less => {
+                Ordering::Greater => {
                     // The current mantissa will fit entirely in the new mantissa:
                     //  - insert most significant bits, then fill with zeros
                     //  - `half_bit` and `sticky_bit` are zero
                     //  - adjust `exp` accordingly
                     let diff = Float::<E2, N2>::PREC - prec;
-                    for (i, b) in m.iter().enumerate() {
-                        m2.set(i + diff, *b);
+                    for (i, b) in c.iter().enumerate() {
+                        c_new.set(i + diff, *b);
                     }
 
                     exp -= diff as i64;
                 }
-                Ordering::Greater => {
+                Ordering::Less => {
                     // Truncation will occur:
                     //  - preserve the highest `Float::<E2, N2>::PREC` bits
                     //  - the next bit is `half_bit`
@@ -504,26 +506,26 @@ impl<const E: usize, const N: usize> Float<E, N> {
                         //  - `m2` is `m[1..PREC]`
                         //  - half bit is m[0]
                         //  - sticky_bit is 0
-                        m2 = m[1..prec].into();
-                        half_bit = m[0];
+                        c_new = c[1..prec].into();
+                        half_bit = c[0];
                     } else if diff == 2 {
                         // easy case:
                         //  - `m2` is `m[2..PREC]`
                         //  - half bit is m[1]
                         //  - sticky bit is m[0]
-                        m2 = m[2..prec].into();
-                        half_bit = m[1];
-                        sticky_bit = m[0];
+                        c_new = c[2..prec].into();
+                        half_bit = c[1];
+                        sticky_bit = c[0];
                     } else {
                         // hard case:
                         //  - actually split the mantissa
                         //  - `m2` is the high part
                         //  - half bit is the MSB of the low part
                         //  - sticky bit is OR of the rest of the low part
-                        let (low, high) = m.split_at(diff);
+                        let (low, high) = c.split_at(diff);
                         let (low_rest, low_msb) = low.split_at(low.len() - 1);
 
-                        m2 = high.into();
+                        c_new = high.into();
                         half_bit = low_msb[0];
                         sticky_bit = low_rest.any();
                     }
@@ -532,7 +534,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 }
             }
 
-            Float::<E2, N2>::round_finalize(s, exp, m2, half_bit, sticky_bit, rm)
+            Float::<E2, N2>::round_finalize(s, exp, c_new, half_bit, sticky_bit, rm)
         }
     }
 
@@ -709,31 +711,28 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 
         // split fields
         let (s, e, mut m) = Self::split_packed(&bv);
-        let mut exponent = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
+        let exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::bias();
 
         // branch on exponent
-        if exponent > Self::EMAX {
+        if exp > Self::EMAX {
             if m.not_any() {
                 // infinity
                 Self::infinity(s)
             } else {
                 // NaN
-                Self::nan(s, m[N - E - 2], m[..N - E - 2].into())
+                Self::nan(s, m[N - E - 2], &m[..N - E - 2])
             }
-        } else if exponent < Self::EMIN {
+        } else if exp < Self::EMIN {
             // subnormal or zero
             if m.not_any() {
                 // zero
                 Self::zero(s)
             } else {
                 // subnormal
-                let exp_diff = 1 + m.trailing_zeros();
                 m.push(false);
-                m.shift_right(exp_diff);
-                exponent -= exp_diff as i64;
                 assert_eq!(m.len(), Self::PREC);
                 Self {
-                    num: FloatNum::Number(s, exponent, m),
+                    num: FloatNum::Number(s, exp, m),
                     flags: Exceptions::default(),
                 }
             }
@@ -742,7 +741,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
             m.push(true);
             assert_eq!(m.len(), Self::PREC);
             Self {
-                num: FloatNum::Number(s, exponent, m),
+                num: FloatNum::Number(s, exp, m),
                 flags: Exceptions::default(),
             }
         }
@@ -759,7 +758,7 @@ impl From<f64> for Float<11, 64> {
     }
 }
 
-// Implementing `Float<E, N>` for `f64`
+// Implementing `From<Float<E, N>>` for `f64`
 impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
     fn from(f: Float<E, N>) -> Self {
         match f.num {
@@ -770,11 +769,8 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
                     Float::<E, N>::pack_components(s, e, m)
                 } else if exp < Float::<E, N>::EMIN {
                     // subnormal
-                    let mut m = m;
+                    let m: BitVec = m[..N - E - 1].into(); // remove leading 0
                     let e = bitvec![0; E];
-                    let diff = Float::<E, N>::EMIN - exp - 1;
-                    m.shift_left(diff as usize);
-                    m.pop(); // leading one is now a leading zero
                     Float::<E, N>::pack_components(s, e, m)
                 } else {
                     // normal
@@ -804,7 +800,7 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
     }
 }
 
-// Implementing `Float<11, 64>` for `f64`
+// Implementing `From<Float<11, 64>>` for `f64`
 impl From<Float<11, 64>> for f64 {
     fn from(f: Float<11, 64>) -> Self {
         let bv: BitVec = f.into();
