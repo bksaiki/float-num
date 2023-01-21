@@ -256,6 +256,8 @@ impl<const E: usize, const N: usize> Default for Float<E, N> {
 
 // Implementing `Number` for `Float`
 impl<const E: usize, const N: usize> Number for Float<E, N> {
+    type Ctx = IEEEContext;
+
     fn is_zero(&self) -> bool {
         match &self.num {
             FloatNum::Number(_, e, c) => *e == 0 && c.not_any(),
@@ -280,5 +282,9 @@ impl<const E: usize, const N: usize> Number for Float<E, N> {
 
     fn is_rational(&self) -> bool {
         true
+    }
+
+    fn mul(&self, other: &Self, ctx: &Self::Ctx) -> Self {
+        self._mul(other, ctx)
     }
 }
