@@ -2,6 +2,7 @@
     Rounding
 */
 
+use std::convert::Infallible;
 use std::cmp::Ordering;
 use std::ops::AddAssign;
 
@@ -340,6 +341,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
 impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Float<E2, N2>>
     for Float<E, N>
 {
+    type Error = Infallible;
+
     fn round(&self, ctx: &Self::Ctx) -> Float<E2, N2> {
         match &self.num {
             FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), &ctx),
@@ -368,5 +371,18 @@ impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Flo
                 Float::<E2, N2>::nan(*s, *signal, payload)
             }
         }
+    }
+
+    fn round_exact(&self, ctx: &Self::Ctx) -> RoundResult<Float<E2, N2>> {
+        let v = Self::round(&self, ctx);
+        if v.inexact_flag() {
+            RoundResult::Inexact(v)
+        } else {
+            RoundResult::Exact(v)
+        }
+    }
+
+    fn try_round(&self, ctx: &Self::Ctx) -> Result<RoundResult<Float<E2, N2>>, Self::Error> {
+        Result::Ok(Self::round_exact(&self, ctx))
     }
 }
