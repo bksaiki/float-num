@@ -411,8 +411,6 @@ fn conversions_8_16() {
 
 #[test]
 fn round_trivial() {
-    let ctx = IEEEContext::new(RoundingMode::NearestEven, false);
-
     let fps = [
         0.0,
         -0.0,
@@ -422,6 +420,7 @@ fn round_trivial() {
         f64::from_bits((0x7FF << 52) | 0x1),
     ];
 
+    let ctx = IEEEContext::default();
     for fp in fps {
         let fp = Double::from(fp);
         let fp128: Quad = fp.round(&ctx);
@@ -446,9 +445,9 @@ fn test_mul_2_4_2_4_2_4() {
     type F1 = Float<E1, N1>;
     type F2 = Float<E2, N2>;
     type F3 = Float<E3, N3>;
+    type Ctx = IEEEContext;
 
-    let ctx = IEEEContext::new(RM, false);
-
+    let ctx = Ctx::default().rounding_mode(RM);
     for i in 0..u32::pow(2, F1::N as u32) {
         let mut xv = BitVec::from_element(i);
         xv.resize(F1::N, false);
@@ -468,7 +467,7 @@ fn test_mul_2_4_2_4_2_4() {
 
 #[test]
 fn sandbox() {
-    let ctx = IEEEContext::new(RoundingMode::NearestEven, false);
+    let ctx = IEEEContext::default();
     let a = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
     let b = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
     let r: Float<2, 4> = a.mul(&b, &ctx);

@@ -36,13 +36,36 @@ impl RoundingMode {
 
 // Implementing IEEEContext
 impl IEEEContext {
-    /// Creates a new rounding context for `Float`s.
-    pub fn new(rm: RoundingMode, ftz: bool) -> Self {
-        Self { rm, ftz }
+    /// Creates a new rounding context for `Float`s
+    /// with `rm` set to `RoundingMode::NearestEven`
+    /// and `ftz` set to false.
+    pub fn new() -> Self {
+        Self {
+            rm: RoundingMode::NearestEven,
+            ftz: false,
+        }
+    }
+
+    /// Sets the rounding mode.
+    pub fn rounding_mode(mut self, rm: RoundingMode) -> Self {
+        self.rm = rm;
+        self
+    }
+
+    /// Sets the flush-to-zero option.
+    pub fn flush_subnormals(mut self, ftz: bool) -> Self {
+        self.ftz = ftz;
+        self
     }
 }
 
 impl Context for IEEEContext {}
+
+impl Default for IEEEContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // Rounding utilities
 impl<const E: usize, const N: usize> Float<E, N> {
@@ -131,14 +154,12 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
             // adjust if the exponent is too small
             // TODO: this is dumb
-            if exp < Float::<E2, N2>::EXPMIN {
-                while exp < Float::<E2, N2>::EXPMIN - 1 {
-                    sticky_bit |= quarter_bit;
-                    quarter_bit = half_bit;
-                    half_bit = c_new[0];
-                    c_new.shift_left(1);
-                    exp += 1;
-                }
+            while exp < Float::<E2, N2>::EXPMIN - 1 {
+                sticky_bit |= quarter_bit;
+                quarter_bit = half_bit;
+                half_bit = c_new[0];
+                c_new.shift_left(1);
+                exp += 1;
             }
 
             // finish the rounding process with all the rounding information

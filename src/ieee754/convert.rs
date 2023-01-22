@@ -61,14 +61,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Self::M
         );
 
-        let mut bv = bitvec![0; N];
-        for (i, b) in m.iter().enumerate() {
-            bv.set(i, *b);
-        }
-        for (i, b) in e.iter().enumerate() {
-            bv.set(i + Self::M, *b);
-        }
-        bv.set(N - 1, s);
+        let mut bv = m;
+        bv.extend(e);
+        bv.push(s);
         bv
     }
 
@@ -156,7 +151,7 @@ impl From<f64> for Float<11, 64> {
     }
 }
 
-// Implementing `From<Float<E, N>>` for `f64`
+// Implementing `From<Float<E, N>>` for `BitVec`
 impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
     fn from(f: Float<E, N>) -> Self {
         let (s, e, m) = match f.num {
