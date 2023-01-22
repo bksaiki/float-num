@@ -26,21 +26,17 @@ pub trait Number: Clone + Default {
     /// Returns true if this `Number` encodes a rational number.
     fn is_rational(&self) -> bool;
 
+    /// Negates this `Number`, rounding the result according
+    /// to the provided context.
+    fn neg(&self, ctx: &Self::Ctx) -> Self;
+
+    /// Takes the absolute value for `Number`, rounding the
+    /// result according to the provided context.
+    fn abs(&self, ctx: &Self::Ctx) -> Self;
+
     /// Multiplies this `Number` and another, rounding the result
     /// according to the provided context.
     fn mul(&self, other: &Self, ctx: &Self::Ctx) -> Self;
-}
-
-/// A mathematical operation on computer number types.
-///
-/// For any computer number system, most mathematical operators
-/// can be decomposed into two operations:
-///  - a real number operation: `R^n -> R`, and
-///  - a rounding operation: `R -> R`.
-/// An `Operation` describes the entire operation
-pub trait Operation {
-    type RealOp;
-    type Ctx: Context;
 }
 
 /// A specification for rounding behavior.

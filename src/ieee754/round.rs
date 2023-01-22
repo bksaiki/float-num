@@ -2,8 +2,8 @@
     Rounding
 */
 
-use std::convert::Infallible;
 use std::cmp::Ordering;
+use std::convert::Infallible;
 use std::ops::AddAssign;
 
 use crate::{ieee754::*, ops::*, Context};
@@ -345,7 +345,7 @@ impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Flo
 
     fn round(&self, ctx: &Self::Ctx) -> Float<E2, N2> {
         match &self.num {
-            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), &ctx),
+            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), ctx),
             FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
             FloatNum::Nan(s, signal, payload) => {
                 let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {
@@ -374,7 +374,7 @@ impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Flo
     }
 
     fn round_exact(&self, ctx: &Self::Ctx) -> RoundResult<Float<E2, N2>> {
-        let v = Self::round(&self, ctx);
+        let v = Self::round(self, ctx);
         if v.inexact_flag() {
             RoundResult::Inexact(v)
         } else {
@@ -383,6 +383,6 @@ impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Flo
     }
 
     fn try_round(&self, ctx: &Self::Ctx) -> Result<RoundResult<Float<E2, N2>>, Self::Error> {
-        Result::Ok(Self::round_exact(&self, ctx))
+        Result::Ok(Self::round_exact(self, ctx))
     }
 }

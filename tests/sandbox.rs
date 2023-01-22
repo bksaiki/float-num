@@ -15,5 +15,5 @@ fn sandbox() {
     let a = N::from(2.0);
     let b = N::from(3.0);
     let ctx = IEEEContext::new(RoundingMode::NearestEven, false);
-    let c = mul(a, b, ctx);
+    let _c = mul(a, b, ctx);
 }

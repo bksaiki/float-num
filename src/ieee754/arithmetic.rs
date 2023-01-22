@@ -14,9 +14,35 @@ macro_rules! bitvec {
 
 // Rounding (casts)
 impl<const E: usize, const N: usize> Float<E, N> {
+    /// Negates this `Float` without rounding.
+    /// Since this representation is symmetric around 0,
+    /// we just negate the sign bit.
+    pub fn neg_exact(&self) -> Self {
+        let num = match &self.num {
+            FloatNum::Number(s, e, c) => FloatNum::Number(!s, *e, c.clone()),
+            FloatNum::Infinity(s) => FloatNum::Infinity(!s),
+            FloatNum::Nan(s, signal, payload) => FloatNum::Nan(!s, *signal, payload.clone()),
+        };
+
+        Self { num, flags: self.flags }
+    }
+
+    /// Takes the absolute value of this `Float` without rounding.
+    /// Since this representation is symmetric around 0,
+    /// we just set the sign bit to 0.
+    pub fn abs_exact(&self) -> Self {
+        let num = match &self.num {
+            FloatNum::Number(_, e, c) => FloatNum::Number(false, *e, c.clone()),
+            FloatNum::Infinity(_) => FloatNum::Infinity(false),
+            FloatNum::Nan(_, signal, payload) => FloatNum::Nan(false, *signal, payload.clone()),
+        };
+
+        Self { num, flags: self.flags }
+    }
+
     /// Multiplies this `Float` with another rounding it to the format
     /// specified by `Float<E3, N3>` and rounding mode `rm`.
-    pub fn _mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
+    pub(crate) fn _mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
         &self,
         other: &Float<E2, N2>,
         ctx: &IEEEContext,

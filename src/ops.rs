@@ -17,7 +17,7 @@ impl<N: Number> RoundResult<N> {
     pub fn value(self) -> N {
         match self {
             Self::Exact(v) => v,
-            Self::Inexact(v) => v
+            Self::Inexact(v) => v,
         }
     }
 }
@@ -30,7 +30,7 @@ pub trait Round<N: Number>: Number {
     /// The output type may differ from the input type.
     fn round(&self, ctx: &Self::Ctx) -> N;
 
-    /// Performs a rounding operation returning the result 
+    /// Performs a rounding operation returning the result
     /// wrapped in a `RoundResult<N>`.
     fn round_exact(&self, ctx: &Self::Ctx) -> RoundResult<N>;
 
