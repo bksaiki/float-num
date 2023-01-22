@@ -166,7 +166,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1075,
+        -1074,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );
@@ -186,7 +186,7 @@ fn from_f64() {
     assert!(!bv.sign(), "conversion from f64 failed (sign): {:.20e}", fp);
     assert_eq!(
         bv.exponent().unwrap(),
-        -1075,
+        -1074,
         "conversion from f64 failed (exponent): {:.20e}",
         fp
     );

@@ -127,10 +127,9 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
             } else {
                 // subnormal
                 m.push(false);
-                exp -= Self::M as i64;
                 assert_eq!(m.len(), Self::PREC);
                 Self {
-                    num: FloatNum::Number(s, exp, m),
+                    num: FloatNum::Subnormal(s, m),
                     flags: Exceptions::default(),
                 }
             }
@@ -140,7 +139,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
             exp -= Self::M as i64;
             assert_eq!(m.len(), Self::PREC);
             Self {
-                num: FloatNum::Number(s, exp, m),
+                num: FloatNum::Normal(s, exp, m),
                 flags: Exceptions::default(),
             }
         }
@@ -160,42 +159,42 @@ impl From<f64> for Float<11, 64> {
 // Implementing `From<Float<E, N>>` for `f64`
 impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
     fn from(f: Float<E, N>) -> Self {
-        match f.num {
-            FloatNum::Number(s, exp, m) => {
-                if exp == 0 && m.not_any() {
-                    let m = bitvec![0; Float::<E, N>::M];
-                    let e = bitvec![0; E];
-                    Float::<E, N>::pack_components(s, e, m)
-                } else if exp < Float::<E, N>::EXPMIN {
-                    // subnormal
-                    let m: BitVec = m[..N - E - 1].into(); // remove leading 0
-                    let e = bitvec![0; E];
-                    Float::<E, N>::pack_components(s, e, m)
-                } else {
-                    // normal
-                    let mut exponent = exp + Float::<E, N>::BIAS + Float::<E, N>::M as i64;
-                    let m: BitVec = m[..N - E - 1].into(); // remove leading 1
-                    let mut e = bitvec![0; E];
-                    for i in 0..E {
-                        e.set(i, (exponent % 2) != 0);
-                        exponent >>= 1;
-                    }
-
-                    Float::<E, N>::pack_components(s, e, m)
+        let (s, e, m) = match f.num {
+            FloatNum::Zero(s) => {
+                let m = bitvec![0; Float::<E, N>::M];
+                let e = bitvec![0; E];
+                (s, e, m)
+            }
+            FloatNum::Subnormal(s, m) => {
+                let m: BitVec = m[..N - E - 1].into(); // remove leading 0
+                let e = bitvec![0; E];
+                (s, e, m)
+            }
+            FloatNum::Normal(s, exp, m) => {
+                let mut exponent = exp + Float::<E, N>::BIAS + Float::<E, N>::M as i64;
+                let m: BitVec = m[..N - E - 1].into(); // remove leading 1
+                let mut e = bitvec![0; E];
+                for i in 0..E {
+                    e.set(i, (exponent % 2) != 0);
+                    exponent >>= 1;
                 }
+
+                (s, e, m)
             }
             FloatNum::Infinity(s) => {
                 let m = bitvec![0; Float::<E, N>::M];
                 let e = bitvec![1; E];
-                Float::<E, N>::pack_components(s, e, m)
+                (s, e, m)
             }
             FloatNum::Nan(s, signal, payload) => {
                 let mut m = payload;
                 let e = bitvec![1; E];
                 m.push(signal); // mantissa = signal | payload
-                Float::<E, N>::pack_components(s, e, m)
+                (s, e, m)
             }
-        }
+        };
+
+        Float::<E, N>::pack_components(s, e, m)
     }
 }
 

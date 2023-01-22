@@ -265,7 +265,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 };
             } else {
                 return Self {
-                    num: FloatNum::Number(s, Self::EXPMAX, bitvec![1; Self::PREC]),
+                    num: FloatNum::Normal(s, Self::EXPMAX, bitvec![1; Self::PREC]),
                     flags: Exceptions {
                         invalid: false,
                         div_by_zero: false,
@@ -323,17 +323,28 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Self::EXPMAX
         );
 
-        Self {
-            num: FloatNum::Number(s, exp, c),
-            flags: Exceptions {
-                invalid: false,
-                div_by_zero: false,
-                overflow: false,
-                underflow: underflow && inexact,
-                inexact,
-                carry: increment,
-            },
-        }
+        // construct the number
+        let num = if underflow {
+            if c.not_any() {
+                FloatNum::Zero(s)
+            } else {
+                FloatNum::Subnormal(s, c)
+            }
+        } else {
+            FloatNum::Normal(s, exp, c)
+        };
+
+        // set the exception flags
+        let flags = Exceptions {
+            invalid: false,
+            div_by_zero: false,
+            overflow: false,
+            underflow: underflow && inexact,
+            inexact,
+            carry: increment,
+        };
+
+        Self { num, flags }
     }
 }
 
@@ -345,7 +356,9 @@ impl<const E: usize, const N: usize, const E2: usize, const N2: usize> Round<Flo
 
     fn round(&self, ctx: &Self::Ctx) -> Float<E2, N2> {
         match &self.num {
-            FloatNum::Number(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), ctx),
+            FloatNum::Zero(s) => Float::zero(*s),
+            FloatNum::Subnormal(s, c) => Self::round_finite(*s, Self::EXPMIN, c.clone(), ctx),
+            FloatNum::Normal(s, exp, c) => Self::round_finite(*s, *exp, c.clone(), ctx),
             FloatNum::Infinity(s) => Float::<E2, N2>::infinity(*s),
             FloatNum::Nan(s, signal, payload) => {
                 let payload = if Self::NAN_PAYLOAD_SIZE < Float::<E2, N2>::NAN_PAYLOAD_SIZE {

@@ -31,7 +31,9 @@ macro_rules! assert_valid_format {
 impl Clone for FloatNum {
     fn clone(&self) -> Self {
         match self {
-            Self::Number(s, e, c) => Self::Number(*s, *e, c.clone()),
+            Self::Zero(s) => Self::Zero(*s),
+            Self::Subnormal(s, c) => Self::Subnormal(*s, c.clone()),
+            Self::Normal(s, e, c) => Self::Normal(*s, *e, c.clone()),
             Self::Infinity(s) => Self::Infinity(*s),
             Self::Nan(s, signal, payload) => Self::Nan(*s, *signal, payload.clone()),
         }
@@ -95,7 +97,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub fn new() -> Self {
         assert_valid_format!(E, N);
         Self {
-            num: FloatNum::Number(false, 0, bitvec![0; Self::PREC]),
+            num: FloatNum::Zero(false),
             flags: Exceptions::default(),
         }
     }
@@ -113,7 +115,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// using the same width parameters as this `Float`.
     pub fn zero(sign: bool) -> Self {
         Self {
-            num: FloatNum::Number(sign, 0, bitvec![0; Self::PREC]),
+            num: FloatNum::Zero(sign),
             flags: Exceptions::default(),
         }
     }
@@ -138,7 +140,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// Returns the sign of this `Float`.
     pub fn sign(&self) -> bool {
         match self.num {
-            FloatNum::Number(s, _, _) => s,
+            FloatNum::Zero(s) => s,
+            FloatNum::Subnormal(s, _) => s,
+            FloatNum::Normal(s, _, _) => s,
             FloatNum::Infinity(s) => s,
             FloatNum::Nan(s, _, _) => s,
         }
@@ -149,7 +153,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// numbers have a valid exponent.
     pub fn exponent(&self) -> Option<i64> {
         match self.num {
-            FloatNum::Number(_, exp, _) => Some(exp),
+            FloatNum::Zero(_) => Some(0),
+            FloatNum::Subnormal(_, _) => Some(Self::EXPMIN),
+            FloatNum::Normal(_, exp, _) => Some(exp),
             _ => None,
         }
     }
@@ -159,7 +165,9 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// have a valid exponent.
     pub fn significand(&self) -> Option<BitVec> {
         match &self.num {
-            FloatNum::Number(_, _, c) => Some(c.clone()),
+            FloatNum::Zero(_) => Some(bitvec![0; Self::PREC]),
+            FloatNum::Subnormal(_, c) => Some(c.clone()),
+            FloatNum::Normal(_, _, c) => Some(c.clone()),
             _ => None,
         }
     }
@@ -172,18 +180,12 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
     /// Returns true if this `Float` encodes a subnormal number
     pub fn is_subnormal(&self) -> bool {
-        match &self.num {
-            FloatNum::Number(_, e, _) => *e < Self::EXPMIN,
-            _ => false,
-        }
+        matches!(self.num, FloatNum::Subnormal(_, _))
     }
 
     /// Returns true if this `Float` encodes a normal number
     pub fn is_normal(&self) -> bool {
-        match &self.num {
-            FloatNum::Number(_, e, c) => *e >= Self::EXPMIN && (*e != 0 || c.some()),
-            _ => false,
-        }
+        matches!(self.num, FloatNum::Normal(_, _, _))
     }
 
     /// Returns true if this `Float` encodes a signaling NaN.
@@ -259,10 +261,7 @@ impl<const E: usize, const N: usize> Number for Float<E, N> {
     type Ctx = IEEEContext;
 
     fn is_zero(&self) -> bool {
-        match &self.num {
-            FloatNum::Number(_, e, c) => *e == 0 && c.not_any(),
-            _ => false,
-        }
+        matches!(self.num, FloatNum::Zero(_))
     }
 
     fn is_infinity(&self) -> bool {
@@ -274,10 +273,10 @@ impl<const E: usize, const N: usize> Number for Float<E, N> {
     }
 
     fn is_finite(&self) -> bool {
-        match &self.num {
-            FloatNum::Number(_, e, _) => *e != 0,
-            _ => false,
-        }
+        matches!(
+            self.num,
+            FloatNum::Zero(_) | FloatNum::Subnormal(_, _) | FloatNum::Normal(_, _, _)
+        )
     }
 
     fn is_rational(&self) -> bool {

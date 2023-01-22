@@ -128,9 +128,15 @@ pub struct Exceptions {
 
 // Minimal floating-point encoding grouped by classification
 enum FloatNum {
+    // zero (+/-)
+    // => (sign)
+    Zero(bool),
+    // subnormal numbers
+    // => (sign, significand)
+    Subnormal(bool, BitVec),
     // signed zero or finite number
     // => (sign, exponent, significand)
-    Number(bool, i64, BitVec),
+    Normal(bool, i64, BitVec),
     // infinity (+/-)
     // => (sign)
     Infinity(bool),

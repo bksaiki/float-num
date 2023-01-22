@@ -19,12 +19,17 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// we just negate the sign bit.
     pub fn neg_exact(&self) -> Self {
         let num = match &self.num {
-            FloatNum::Number(s, e, c) => FloatNum::Number(!s, *e, c.clone()),
+            FloatNum::Zero(s) => FloatNum::Zero(!s),
+            FloatNum::Subnormal(s, c) => FloatNum::Subnormal(*s, c.clone()),
+            FloatNum::Normal(s, e, c) => FloatNum::Normal(!s, *e, c.clone()),
             FloatNum::Infinity(s) => FloatNum::Infinity(!s),
             FloatNum::Nan(s, signal, payload) => FloatNum::Nan(!s, *signal, payload.clone()),
         };
 
-        Self { num, flags: self.flags }
+        Self {
+            num,
+            flags: self.flags,
+        }
     }
 
     /// Takes the absolute value of this `Float` without rounding.
@@ -32,12 +37,17 @@ impl<const E: usize, const N: usize> Float<E, N> {
     /// we just set the sign bit to 0.
     pub fn abs_exact(&self) -> Self {
         let num = match &self.num {
-            FloatNum::Number(_, e, c) => FloatNum::Number(false, *e, c.clone()),
+            FloatNum::Zero(_) => FloatNum::Zero(false),
+            FloatNum::Subnormal(_, c) => FloatNum::Subnormal(false, c.clone()),
+            FloatNum::Normal(_, e, c) => FloatNum::Normal(false, *e, c.clone()),
             FloatNum::Infinity(_) => FloatNum::Infinity(false),
             FloatNum::Nan(_, signal, payload) => FloatNum::Nan(false, *signal, payload.clone()),
         };
 
-        Self { num, flags: self.flags }
+        Self {
+            num,
+            flags: self.flags,
+        }
     }
 
     /// Multiplies this `Float` with another rounding it to the format
@@ -70,15 +80,21 @@ impl<const E: usize, const N: usize> Float<E, N> {
             // `other` is +/- infinity, `self` is either finite or +/- infinity
             let sign = self.sign() != other.sign();
             Float::<E3, N3>::infinity(sign)
+        } else if self.is_zero() || other.is_zero() {
+            // either `self` or `other` is +/- 0
+            let sign = self.sign() != other.sign();
+            Float::<E3, N3>::zero(sign)
         } else {
             // `self` and `other` are both finite
             let (s1, exp1, c1) = match &self.num {
-                FloatNum::Number(s, exp, c) => (*s, *exp, c),
+                FloatNum::Subnormal(s, c) => (*s, Self::EXPMIN, c),
+                FloatNum::Normal(s, exp, c) => (*s, *exp, c),
                 _ => panic!("called on a non-finite float"),
             };
 
             let (s2, exp2, c2) = match &other.num {
-                FloatNum::Number(s, exp, c) => (*s, *exp, c),
+                FloatNum::Subnormal(s, c) => (*s, Float::<E2, N2>::EXPMIN, c),
+                FloatNum::Normal(s, exp, c) => (*s, *exp, c),
                 _ => panic!("called on a non-finite float"),
             };
 
