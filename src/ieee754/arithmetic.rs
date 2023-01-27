@@ -79,7 +79,15 @@ impl<const E: usize, const N: usize> Float<E, N> {
         } else if other.is_infinity() {
             // `other` is +/- infinity, `self` is either finite or +/- infinity
             let sign = self.sign() != other.sign();
-            Float::<E3, N3>::infinity(sign)
+            if self.is_zero() {
+                // `self` is +/- 0 => invalid
+                let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
+                let mut r = Float::<E3, N3>::nan(sign, true, payload);
+                r.flags.invalid = true;
+                r
+            } else {
+                Float::<E3, N3>::infinity(sign)
+            }
         } else if self.is_zero() || other.is_zero() {
             // either `self` or `other` is +/- 0
             let sign = self.sign() != other.sign();

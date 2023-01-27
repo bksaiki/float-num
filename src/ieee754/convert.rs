@@ -5,6 +5,8 @@
 use bitvec::field::BitField;
 use num_traits::cast::ToPrimitive;
 
+use crate::ops::Round;
+
 use super::*;
 
 macro_rules! bitvec {
@@ -30,7 +32,7 @@ macro_rules! assert_valid_format {
     };
 }
 
-// Utility
+// Bit operations
 impl<const E: usize, const N: usize> Float<E, N> {
     // Splices a packed floating-point representation into
     // the sign, exponent, and mantissa field.
@@ -142,12 +144,17 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 }
 
 // Implementing `From<f64>` for `Float<11, 64>
-impl From<f64> for Float<11, 64> {
+impl<const E: usize, const N: usize> From<f64> for Float<E, N> {
     fn from(f: f64) -> Self {
         let mut bv = bitvec![0; 64];
         let b = f.to_bits();
         bv.store(b);
-        Self::from(bv)
+        if E == 11 && N == 64 {
+            Self::from(bv)
+        } else {
+            let fp64 = Float::<11, 64>::from(bv);
+            fp64.round(&IEEEContext::default())
+        }
     }
 }
 
@@ -193,10 +200,16 @@ impl<const E: usize, const N: usize> From<Float<E, N>> for BitVec {
     }
 }
 
-// Implementing `From<Float<11, 64>>` for `f64`
-impl From<Float<11, 64>> for f64 {
-    fn from(f: Float<11, 64>) -> Self {
-        let bv: BitVec = f.into();
+// Implementing `From<Float<E, N>>` for `f64`
+impl<const E: usize, const N: usize> From<Float<E, N>> for f64 {
+    fn from(f: Float<E, N>) -> Self {
+        let bv: BitVec = if E == 11 && N == 64 {
+            f.into()
+        } else {
+            let fp64: Float<11, 64> = f.round(&IEEEContext::default());
+            fp64.into()
+        };
+
         f64::from_bits(bv[..64].load())
     }
 }

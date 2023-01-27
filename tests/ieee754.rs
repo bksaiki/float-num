@@ -3,6 +3,8 @@ use float_sim::ieee754::*;
 use float_sim::ops::*;
 use float_sim::Number;
 
+use gmp_mpfr_sys::mpfr;
+
 type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 
 macro_rules! bitvec {
@@ -11,6 +13,51 @@ macro_rules! bitvec {
             bitvec::bitvec![u32, Lsb0; $($t)*]
         }
     };
+}
+
+fn rm_to_mpfr(rm: RoundingMode) -> mpfr::rnd_t {
+    match rm {
+        RoundingMode::NearestEven => mpfr::rnd_t::RNDN,
+        RoundingMode::NearestAway => panic!("MPFR does not support RoundingMode::NearestAway"),
+        RoundingMode::ToPositive => mpfr::rnd_t::RNDU,
+        RoundingMode::ToNegative => mpfr::rnd_t::RNDD,
+        RoundingMode::ToZero => mpfr::rnd_t::RNDZ,
+        RoundingMode::AwayZero => mpfr::rnd_t::RNDA,
+        RoundingMode::ToOdd => panic!("MPFR does not support RoundingMode::ToOdd"),
+    }
+}
+
+fn mpfr_mul(
+    a: &rug::Float,
+    b: &rug::Float,
+    prec: usize,
+    emin: i64,
+    emax: i64,
+    rm: RoundingMode,
+) -> rug::Float {
+    let mut r = rug::Float::new(53);
+    let mpfr_emin = emin - (prec as i64) + 2;
+    let mpfr_emax = emax + 1;
+
+    unsafe {
+        let a_mpfr = a.as_raw();
+        let b_mpfr = b.as_raw();
+        let r_mpfr = r.as_raw_mut();
+        let rnd = rm_to_mpfr(rm);
+
+        let emin = mpfr::get_emin();
+        let emax = mpfr::get_emax();
+        mpfr::set_emin(mpfr_emin);
+        mpfr::set_emax(mpfr_emax);
+
+        let t = mpfr::mul(r_mpfr, a_mpfr, b_mpfr, rnd);
+        mpfr::subnormalize(r_mpfr, t, rnd);
+
+        mpfr::set_emin(emin);
+        mpfr::set_emax(emax);
+    }
+
+    r
 }
 
 #[test]
@@ -28,6 +75,8 @@ fn parameters() {
     assert_eq!(Double::PREC, 53);
     assert_eq!(Double::EMAX, 1023);
     assert_eq!(Double::EMIN, -1022);
+    assert_eq!(Double::EXPMAX, 971);
+    assert_eq!(Double::EXPMIN, -1074);
 
     assert_eq!(Single::E, 8);
     assert_eq!(Single::N, 32);
@@ -445,33 +494,62 @@ fn test_mul_2_4_2_4_2_4() {
     type F1 = Float<E1, N1>;
     type F2 = Float<E2, N2>;
     type F3 = Float<E3, N3>;
-    type Ctx = IEEEContext;
 
-    let ctx = Ctx::default().rounding_mode(RM);
+    let mut success: bool = true;
+    let mut bad: Vec<((f64, f64), (f64, f64))> = vec![];
+
+    let ctx = IEEEContext::default().rounding_mode(RM);
     for i in 0..u32::pow(2, F1::N as u32) {
         let mut xv = BitVec::from_element(i);
         xv.resize(F1::N, false);
         let x = F1::from(xv.clone());
+        let xf = rug::Float::with_val(53, f64::from(x.clone()));
+
         for j in 0..u32::pow(2, F2::N as u32) {
             let mut yv = BitVec::from_element(j);
             yv.resize(F2::N, false);
             let y = F2::from(yv.clone());
+            let yf = rug::Float::with_val(53, f64::from(y.clone()));
 
             let z: F3 = x.mul(&y, &ctx);
-            let zv: BitVec = z.into();
+            let zv = f64::from(z.clone());
+            let zf = mpfr_mul(&xf, &yf, F3::PREC, F3::EMIN, F3::EMAX, RM);
 
-            println!("{} * {} = {}", xv, yv, zv);
+            println!(
+                "{} * {} = {}",
+                BitVec::from(x.clone()),
+                BitVec::from(y),
+                BitVec::from(z)
+            );
+            if match (zv.is_nan(), zf.to_f64().is_nan()) {
+                (true, true) => false,
+                (true, false) => true,
+                (false, true) => true,
+                (false, false) => zv != zf.to_f64(),
+            } {
+                success = false;
+                bad.push(((xf.to_f64(), yf.to_f64()), (zf.to_f64(), zv)));
+            }
         }
     }
+
+    assert!(
+        success,
+        "multiplication tests failed: {}",
+        bad.iter()
+            .map(|((x, y), (z0, z1))| format!("{} * {} => Exp: {} Act: {}", x, y, z0, z1))
+            .collect::<Vec<String>>()
+            .join("\n")
+    );
 }
 
 #[test]
 fn sandbox() {
     let ctx = IEEEContext::default();
-    let a = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
-    let b = Float::<2, 4>::nan(true, true, bitvec![0; 0]);
+    let a = Float::<2, 4>::from(1.5);
+    let b = Float::<2, 4>::from(1.0);
     let r: Float<2, 4> = a.mul(&b, &ctx);
 
-    let bv: BitVec = r.into();
-    println!("{}", bv);
+    println!("{} * {} = {}", BitVec::from(a.clone()), BitVec::from(b.clone()), BitVec::from(r.clone()));
+    println!("{} * {} = {}", f64::from(a), f64::from(b), f64::from(r));
 }
