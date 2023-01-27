@@ -273,31 +273,29 @@ impl<const E: usize, const N: usize> Float<E, N> {
         let underflow = if exp > Self::EXPMIN {
             // definitely larger than MIN_NORM
             false
-        } else {
-            if c[Self::M] {
-                // leading 1 detected
-                if increment && c[..Self::M].not_any() {
-                    // exactly MIN_NORM: need to check a few things
-                    match ctx.rm.direction(s) {
-                        // only if we were exactly 3/4 of the way to +/-MIN_NORM
-                        (true, _) => half_bit && quarter_bit && !sticky_bit,
-                        // the result was exactly +/-MIN_NORM so we shouldn't be here
-                        (_, RoundingDirection::ToZero) => panic!("unreachable"),
-                        // only if we were more than 1/2 of the way to +/- MIN_NORM
-                        (_, RoundingDirection::AwayZero) => half_bit && qs_bit,
-                        // only if we were more than 1/2 of the way to +/- MIN_NORM
-                        (_, RoundingDirection::ToEven) => half_bit && qs_bit,
-                        // the result was exactly +/-MIN_NORM so we shouldn't be here
-                        (_, RoundingDirection::ToOdd) => panic!("unreachable"),
-                    }
-                } else {
-                    // definitely larger than MIN_NORM
-                    false
+        } else if c[Self::M] {
+            // leading 1 detected
+            if increment && c[..Self::M].not_any() {
+                // exactly MIN_NORM: need to check a few things
+                match ctx.rm.direction(s) {
+                    // only if we were exactly 3/4 of the way to +/-MIN_NORM
+                    (true, _) => half_bit && quarter_bit && !sticky_bit,
+                    // the result was exactly +/-MIN_NORM so we shouldn't be here
+                    (_, RoundingDirection::ToZero) => panic!("unreachable"),
+                    // only if we were more than 1/2 of the way to +/- MIN_NORM
+                    (_, RoundingDirection::AwayZero) => half_bit && qs_bit,
+                    // only if we were more than 1/2 of the way to +/- MIN_NORM
+                    (_, RoundingDirection::ToEven) => half_bit && qs_bit,
+                    // the result was exactly +/-MIN_NORM so we shouldn't be here
+                    (_, RoundingDirection::ToOdd) => panic!("unreachable"),
                 }
             } else {
-                // definitely a subnormal result
-                true
+                // definitely larger than MIN_NORM
+                false
             }
+        } else {
+            // definitely a subnormal result
+            true
         };
 
         // The inexact flag is just if either of the rounding bits are high
