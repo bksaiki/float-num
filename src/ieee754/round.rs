@@ -94,7 +94,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             //  (b) output mantissa + 3 bits
             // and record the number of bits added
             let c_len = usize::max(prec, Float::<E2, N2>::PREC) + 3;
-             if prec < c_len {
+            if prec < c_len {
                 let padding = c_len - prec;
                 c.extend(bitvec![0; padding]);
                 c.shift_right(padding);

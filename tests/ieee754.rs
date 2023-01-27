@@ -30,14 +30,13 @@ fn rm_to_mpfr(rm: RoundingMode) -> mpfr::rnd_t {
 fn mpfr_mul(
     a: &rug::Float,
     b: &rug::Float,
+    ewidth: usize,
     prec: usize,
-    emin: i64,
-    emax: i64,
     rm: RoundingMode,
 ) -> rug::Float {
-    let mut r = rug::Float::new(53);
-    let mpfr_emin = emin - (prec as i64) + 2;
-    let mpfr_emax = emax + 1;
+    let mut r = rug::Float::new(prec as u32);
+    let mpfr_emax = usize::pow(2, ewidth as u32 - 1) as i64;
+    let mpfr_emin = 4 - (mpfr_emax + prec as i64);
 
     unsafe {
         let a_mpfr = a.as_raw();
@@ -481,69 +480,91 @@ fn round_trivial() {
     }
 }
 
-#[test]
-fn test_mul_2_4_2_4_2_4() {
-    const E1: usize = 2;
-    const N1: usize = 4;
-    const E2: usize = 2;
-    const N2: usize = 4;
-    const E3: usize = 2;
-    const N3: usize = 4;
-    const RM: RoundingMode = RoundingMode::NearestEven;
+macro_rules! test_mul {
+    ( $E1:expr, $N1:expr, $E2:expr, $N2:expr, $E3:expr, $N3:expr ) => {
+        type F1 = Float<$E1, $N1>;
+        type F2 = Float<$E2, $N2>;
+        type F3 = Float<$E3, $N3>;
 
-    type F1 = Float<E1, N1>;
-    type F2 = Float<E2, N2>;
-    type F3 = Float<E3, N3>;
+        let mut success: bool = true;
+        let mut bad: Vec<((f64, f64), (f64, f64))> = vec![];
+        let rms = &[
+            RoundingMode::NearestEven,
+            RoundingMode::ToPositive,
+            RoundingMode::ToNegative,
+            RoundingMode::ToZero,
+            RoundingMode::AwayZero,
+        ];
 
-    let mut success: bool = true;
-    let mut bad: Vec<((f64, f64), (f64, f64))> = vec![];
+        for rm in rms {
+            let ctx = IEEEContext::default().rounding_mode(*rm);
+            for i in 0..u32::pow(2, F1::N as u32) {
+                let mut xv = BitVec::from_element(i);
+                xv.resize(F1::N, false);
+                let x = F1::from(xv.clone());
+                let xf = rug::Float::with_val(53, f64::from(x.clone()));
 
-    let ctx = IEEEContext::default().rounding_mode(RM);
-    for i in 0..u32::pow(2, F1::N as u32) {
-        let mut xv = BitVec::from_element(i);
-        xv.resize(F1::N, false);
-        let x = F1::from(xv.clone());
-        let xf = rug::Float::with_val(53, f64::from(x.clone()));
+                for j in 0..u32::pow(2, F2::N as u32) {
+                    let mut yv = BitVec::from_element(j);
+                    yv.resize(F2::N, false);
+                    let y = F2::from(yv.clone());
+                    let yf = rug::Float::with_val(53, f64::from(y.clone()));
 
-        for j in 0..u32::pow(2, F2::N as u32) {
-            let mut yv = BitVec::from_element(j);
-            yv.resize(F2::N, false);
-            let y = F2::from(yv.clone());
-            let yf = rug::Float::with_val(53, f64::from(y.clone()));
+                    let z: F3 = x.mul(&y, &ctx);
+                    let zv = f64::from(z.clone());
+                    let zf = mpfr_mul(&xf, &yf, F3::E, F3::PREC, *rm);
 
-            let z: F3 = x.mul(&y, &ctx);
-            let zv = f64::from(z.clone());
-            let zf = mpfr_mul(&xf, &yf, F3::PREC, F3::EMIN, F3::EMAX, RM);
-            
-            if match (zv.is_nan(), zf.to_f64().is_nan()) {
-                (true, true) => false,
-                (true, false) => true,
-                (false, true) => true,
-                (false, false) => zv != zf.to_f64(),
-            } {
-                success = false;
-                bad.push(((xf.to_f64(), yf.to_f64()), (zf.to_f64(), zv)));
+                    if match (zv.is_nan(), zf.to_f64().is_nan()) {
+                        (true, true) => false,
+                        (true, false) => true,
+                        (false, true) => true,
+                        (false, false) => zv != zf.to_f64(),
+                    } {
+                        success = false;
+                        bad.push(((xf.to_f64(), yf.to_f64()), (zf.to_f64(), zv)));
+                    }
+                }
             }
         }
-    }
 
-    assert!(
-        success,
-        "multiplication tests failed: {}",
-        bad.iter()
-            .map(|((x, y), (z0, z1))| format!("{} * {} => Exp: {} Act: {}", x, y, z0, z1))
-            .collect::<Vec<String>>()
-            .join("\n")
-    );
+        assert!(
+            success,
+            "multiplication tests failed: {}",
+            bad.iter()
+                .map(|((x, y), (z0, z1))| format!("{} * {} => Exp: {} Act: {}", x, y, z0, z1))
+                .collect::<Vec<String>>()
+                .join("\n")
+        );
+    };
+}
+
+#[test]
+fn test_mul_2_4_2_4_2_4() {
+    test_mul!(2, 4, 2, 4, 2, 4);
+}
+
+#[test]
+fn test_mul_3_6_3_6_3_6() {
+    test_mul!(3, 6, 3, 6, 3, 6);
+}
+
+#[test]
+fn test_mul_4_8_4_8_4_8() {
+    test_mul!(4, 8, 4, 8, 4, 8);
 }
 
 #[test]
 fn sandbox() {
     let ctx = IEEEContext::default();
-    let a = Float::<2, 4>::from(0.5);
-    let b = Float::<2, 4>::from(0.5);
-    let c: Float<2, 4> = a.mul(&b, &ctx);
+    let a = Float::<3, 6>::from(2.5);
+    let b = Float::<3, 6>::from(2.5);
+    let c: Float<3, 6> = a.mul(&b, &ctx);
 
-    println!("{} * {} = {}", BitVec::from(a.clone()), BitVec::from(b.clone()), BitVec::from(c.clone()));
+    println!(
+        "{} * {} = {}",
+        BitVec::from(a.clone()),
+        BitVec::from(b.clone()),
+        BitVec::from(c.clone())
+    );
     println!("{} * {} = {}", f64::from(a), f64::from(b), f64::from(c));
 }
