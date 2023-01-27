@@ -2,7 +2,6 @@
     Rounding
 */
 
-use std::cmp::Ordering;
 use std::convert::Infallible;
 use std::ops::AddAssign;
 
@@ -74,7 +73,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
     pub(crate) fn round_finite<const E2: usize, const N2: usize>(
         s: bool,
         mut exp: i64,
-        c: BitVec,
+        mut c: BitVec,
         ctx: &IEEEContext,
     ) -> Float<E2, N2> {
         if exp == 0 && c.not_any() {
@@ -82,79 +81,49 @@ impl<const E: usize, const N: usize> Float<E, N> {
             // Return zero, no exception flags are raised
             Float::<E2, N2>::zero(s)
         } else {
-            // We will construct the new mantissa with three rounding bits
-            // Then we'll call the (rounding) finalizer to complete the rounding
-            // process and raise the correct exception flags.
-            let mut c_new = bitvec![0; Float::<E2, N2>::PREC];
-            let mut half_bit = false;
-            let mut quarter_bit = false;
-            let mut sticky_bit = false;
-            let prec = c.len();
-
-            // Branch on mantissa size comparison
-            match Float::<E2, N2>::PREC.cmp(&prec) {
-                Ordering::Equal => {
-                    // The current mantissa is the new mantissa
-                    //  - `half_bit`, `quarter_bit`, `sticky_bit` are zero
-                    //  - preserve the mantissa and exponent
-                    c_new = c;
-                }
-                Ordering::Greater => {
-                    // The current mantissa will fit entirely in the new mantissa:
-                    //  - insert most significant bits, then fill with zeros
-                    //  - `half_bit`, `quarter_bit`, `sticky_bit` are zero
-                    //  - adjust `exp` accordingly
-                    let diff = Float::<E2, N2>::PREC - prec;
-                    for (i, b) in c.iter().enumerate() {
-                        c_new.set(i + diff, *b);
-                    }
-
-                    exp -= diff as i64;
-                }
-                Ordering::Less => {
-                    // Truncation will occur:
-                    //  - preserve the highest `Float::<E2, N2>::PREC` bits
-                    //  - the next two bits are the `half_bit` and `sticky_bit`
-                    //  - if any of the remaining bits are high, set `sticky_bit` to 1
-                    //  - adjust exp accordingly
-                    let diff = prec - Float::<E2, N2>::PREC;
-                    if diff == 1 {
-                        // optimized case:
-                        //  - `m2` is `m[1..PREC]`
-                        //  - half bit is m[0]
-                        //  - sticky_bit is 0
-                        c_new = c[1..prec].into();
-                        half_bit = c[0];
-                    } else if diff == 2 {
-                        // optimized case
-                        //  - `m2` is `m[2..PREC]`
-                        //  - half bit is m[1]
-                        //  - sticky bit is m[0]
-                        c_new = c[2..prec].into();
-                        half_bit = c[1];
-                        quarter_bit = c[0];
-                    } else {
-                        // hard case:
-                        //  - actually split the mantissa
-                        //  - `m2` is the high part
-                        //  - half bit is the MSB of the low part
-                        //  - sticky bit is OR of the rest of the low part
-                        let (low, high) = c.split_at(diff);
-                        let low_len = low.len();
-
-                        c_new = high.into();
-                        half_bit = low[low_len - 1];
-                        quarter_bit = low[low_len - 2];
-                        sticky_bit = low[..low_len - 2].any();
-                    }
-
-                    exp += diff as i64;
-                }
+            // Drop leading zeros
+            let mut prec = c.len();
+            let lz = c.last_one().unwrap() + 1;
+            if lz < prec {
+                c = c[..lz].into();
+                prec = lz;
             }
+
+            // Construct a mantissa large enough to hold
+            //  (a) input mantissa
+            //  (b) output mantissa + 3 bits
+            // and record the number of bits added
+            let c_len = usize::max(prec, Float::<E2, N2>::PREC) + 3;
+             if prec < c_len {
+                let padding = c_len - prec;
+                c.extend(bitvec![0; padding]);
+                c.shift_right(padding);
+                exp -= padding as i64;
+            }
+
+            // Construct the new mantissa with three rounding bits
+            //  `half`: unrounded value is at least half way to the next representable float
+            //  `quarter`: unrounded value is either 1/4 or 3/4 of the way
+            //   to the next representable float (depending on `half`)
+            //  `sticky`: unrounded value is slightly above 0, 1/4, 1/2, 3/4 of the way
+            //   to the next representable float but below the next regime
+            let diff = c_len - Float::<E2, N2>::PREC;
+            let (low, high) = c.split_at(diff);
+            let low_len = low.len();
+            exp += diff as i64;
+
+            // `c_new` - highest `Float::<E2, N2>::PREC` bits
+            // `half_bit` - MSB of the low part
+            // `quarter_bit` - next bit of the low part
+            // `sticky_bit` - apply OR to the rest of the low part
+            let mut c_new = BitVec::from(high);
+            let mut half_bit = low[low_len - 1];
+            let mut quarter_bit = low[low_len - 2];
+            let mut sticky_bit = low[..low_len - 2].any();
 
             // adjust if the exponent is too small
             // TODO: this is dumb
-            while exp < Float::<E2, N2>::EXPMIN - 1 {
+            while exp < Float::<E2, N2>::EXPMIN {
                 sticky_bit |= quarter_bit;
                 quarter_bit = half_bit;
                 half_bit = c_new[0];
@@ -301,11 +270,14 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
         // Next, we check if underflow may have occured
         // The underflow exception is only raised if the inexact exception is also raised.
-        let underflow = match exp.cmp(&Self::EXPMIN) {
-            Ordering::Greater => false,
-            Ordering::Less => true,
-            Ordering::Equal => {
+        let underflow = if exp > Self::EXPMIN {
+            // definitely larger than MIN_NORM
+            false
+        } else {
+            if c[Self::M] {
+                // leading 1 detected
                 if increment && c[..Self::M].not_any() {
+                    // exactly MIN_NORM: need to check a few things
                     match ctx.rm.direction(s) {
                         // only if we were exactly 3/4 of the way to +/-MIN_NORM
                         (true, _) => half_bit && quarter_bit && !sticky_bit,
@@ -319,9 +291,12 @@ impl<const E: usize, const N: usize> Float<E, N> {
                         (_, RoundingDirection::ToOdd) => panic!("unreachable"),
                     }
                 } else {
-                    // larger then MIN_NORM
+                    // definitely larger than MIN_NORM
                     false
                 }
+            } else {
+                // definitely a subnormal result
+                true
             }
         };
 
@@ -337,7 +312,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Self::PREC
         );
         assert!(
-            (exp >= Self::EXPMIN - 1) && (exp <= Self::EXPMAX),
+            (exp >= Self::EXPMIN) && (exp <= Self::EXPMAX),
             "unexpected exponent after rounding: {} [{}, {}]",
             exp,
             Self::EXPMIN,

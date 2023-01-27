@@ -514,13 +514,7 @@ fn test_mul_2_4_2_4_2_4() {
             let z: F3 = x.mul(&y, &ctx);
             let zv = f64::from(z.clone());
             let zf = mpfr_mul(&xf, &yf, F3::PREC, F3::EMIN, F3::EMAX, RM);
-
-            println!(
-                "{} * {} = {}",
-                BitVec::from(x.clone()),
-                BitVec::from(y),
-                BitVec::from(z)
-            );
+            
             if match (zv.is_nan(), zf.to_f64().is_nan()) {
                 (true, true) => false,
                 (true, false) => true,
@@ -546,10 +540,10 @@ fn test_mul_2_4_2_4_2_4() {
 #[test]
 fn sandbox() {
     let ctx = IEEEContext::default();
-    let a = Float::<2, 4>::from(1.5);
-    let b = Float::<2, 4>::from(1.0);
-    let r: Float<2, 4> = a.mul(&b, &ctx);
+    let a = Float::<2, 4>::from(0.5);
+    let b = Float::<2, 4>::from(0.5);
+    let c: Float<2, 4> = a.mul(&b, &ctx);
 
-    println!("{} * {} = {}", BitVec::from(a.clone()), BitVec::from(b.clone()), BitVec::from(r.clone()));
-    println!("{} * {} = {}", f64::from(a), f64::from(b), f64::from(r));
+    println!("{} * {} = {}", BitVec::from(a.clone()), BitVec::from(b.clone()), BitVec::from(c.clone()));
+    println!("{} * {} = {}", f64::from(a), f64::from(b), f64::from(c));
 }
