@@ -652,10 +652,10 @@ macro_rules! test_mul {
         )> = vec![];
         let rms = &[
             RoundingMode::NearestEven,
-            // RoundingMode::ToPositive,
-            // RoundingMode::ToNegative,
-            // RoundingMode::ToZero,
-            // RoundingMode::AwayZero,
+            RoundingMode::ToPositive,
+            RoundingMode::ToNegative,
+            RoundingMode::ToZero,
+            RoundingMode::AwayZero,
         ];
 
         for rm in rms {

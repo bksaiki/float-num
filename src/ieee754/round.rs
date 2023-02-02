@@ -282,8 +282,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
                     (true, _) => !half_bit || !quarter_bit,
                     // the result was exactly +/-MIN_NORM so we shouldn't be here
                     (_, RoundingDirection::ToZero) => panic!("unreachable"),
-                    // only if we were more than 1/2 of the way to +/- MIN_NORM
-                    (_, RoundingDirection::AwayZero) => half_bit && qs_bit,
+                    // only if we were less than or equal to 1/2 or the way to +/- MIN_NORM
+                    (_, RoundingDirection::AwayZero) => !half_bit || !qs_bit,
                     // only if we were more than 1/2 of the way to +/- MIN_NORM
                     (_, RoundingDirection::ToEven) => half_bit && qs_bit,
                     // the result was exactly +/-MIN_NORM so we shouldn't be here
@@ -298,7 +298,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             true
         };
 
-        // The inexact flag is just if either of the rounding bits are high
+        // The inexact flag is just if any of the rounding bits are high
         let inexact = half_bit || quarter_bit || sticky_bit;
 
         // Some sanity checking

@@ -73,7 +73,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             if other.is_zero() {
                 // `other` is +/- 0 => invalid
                 let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
-                let mut r = Float::<E3, N3>::nan(sign, false, payload);
+                let mut r = Float::<E3, N3>::nan(sign, true, payload);
                 r.flags.invalid = true;
                 r
             } else {
@@ -86,7 +86,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             if self.is_zero() {
                 // `self` is +/- 0 => invalid
                 let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
-                let mut r = Float::<E3, N3>::nan(sign, false, payload);
+                let mut r = Float::<E3, N3>::nan(sign, true, payload);
                 r.flags.invalid = true;
                 r
             } else {
@@ -142,7 +142,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             if other.is_infinity() && self.sign() != other.sign() {
                 // `other` is -/+ infinity => invalid (negative)
                 let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
-                let mut r = Float::<E3, N3>::nan(true, false, payload);
+                let mut r = Float::<E3, N3>::nan(true, true, payload);
                 r.flags.invalid = true;
                 r
             } else {
@@ -155,7 +155,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             if self.is_infinity() && self.sign() != other.sign() {
                 // `self` is -/+ infinity => invalid
                 let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
-                let mut r = Float::<E3, N3>::nan(true, false, payload);
+                let mut r = Float::<E3, N3>::nan(true, true, payload);
                 r.flags.invalid = true;
                 r
             } else {
