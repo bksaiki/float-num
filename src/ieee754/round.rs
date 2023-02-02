@@ -278,8 +278,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
             if increment && c[..Self::M].not_any() {
                 // exactly MIN_NORM: need to check a few things
                 match ctx.rm.direction(s) {
-                    // only if we were exactly 3/4 of the way to +/-MIN_NORM
-                    (true, _) => half_bit && quarter_bit && !sticky_bit,
+                    // only if we were less than 3/4 of the way to +/-MIN_NORM
+                    (true, _) => !half_bit || !quarter_bit,
                     // the result was exactly +/-MIN_NORM so we shouldn't be here
                     (_, RoundingDirection::ToZero) => panic!("unreachable"),
                     // only if we were more than 1/2 of the way to +/- MIN_NORM

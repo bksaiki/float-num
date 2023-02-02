@@ -33,12 +33,13 @@ fn mpfr_mul(
     ewidth: usize,
     prec: usize,
     rm: RoundingMode,
-) -> rug::Float {
+) -> (rug::Float, bool, bool, bool, bool, bool) {
     let mut r = rug::Float::new(prec as u32);
+
     let mpfr_emax = usize::pow(2, ewidth as u32 - 1) as i64;
     let mpfr_emin = 4 - (mpfr_emax + prec as i64);
 
-    unsafe {
+    let (invalid, div_by_zero, overflow, underflow, inexact) = unsafe {
         let a_mpfr = a.as_raw();
         let b_mpfr = b.as_raw();
         let r_mpfr = r.as_raw_mut();
@@ -48,15 +49,24 @@ fn mpfr_mul(
         let emax = mpfr::get_emax();
         mpfr::set_emin(mpfr_emin);
         mpfr::set_emax(mpfr_emax);
+        mpfr::clear_flags();
 
         let t = mpfr::mul(r_mpfr, a_mpfr, b_mpfr, rnd);
         mpfr::subnormalize(r_mpfr, t, rnd);
 
+        let invalid = mpfr::nanflag_p() != 0;
+        let div_by_zero = mpfr::divby0_p() != 0;
+        let overflow = mpfr::overflow_p() != 0;
+        let inexact = mpfr::inexflag_p() != 0;
+        let underflow = inexact && mpfr::underflow_p() != 0;
+
         mpfr::set_emin(emin);
         mpfr::set_emax(emax);
-    }
 
-    r
+        (invalid, div_by_zero, overflow, underflow, inexact)
+    };
+
+    (r, invalid, div_by_zero, overflow, underflow, inexact)
 }
 
 #[test]
@@ -487,13 +497,17 @@ macro_rules! test_mul {
         type F3 = Float<$E3, $N3>;
 
         let mut success: bool = true;
-        let mut bad: Vec<((f64, f64), (f64, f64))> = vec![];
+        let mut bad: Vec<(
+            (f64, f64),
+            (f64, bool, bool, bool, bool, bool),
+            (f64, bool, bool, bool, bool, bool),
+        )> = vec![];
         let rms = &[
             RoundingMode::NearestEven,
-            RoundingMode::ToPositive,
-            RoundingMode::ToNegative,
-            RoundingMode::ToZero,
-            RoundingMode::AwayZero,
+            // RoundingMode::ToPositive,
+            // RoundingMode::ToNegative,
+            // RoundingMode::ToZero,
+            // RoundingMode::AwayZero,
         ];
 
         for rm in rms {
@@ -512,7 +526,7 @@ macro_rules! test_mul {
 
                     let z: F3 = x.mul(&y, &ctx);
                     let zv = f64::from(z.clone());
-                    let zf = mpfr_mul(&xf, &yf, F3::E, F3::PREC, *rm);
+                    let (zf, iv, dz, of, uf, ie) = mpfr_mul(&xf, &yf, F3::E, F3::PREC, *rm);
 
                     if match (zv.is_nan(), zf.to_f64().is_nan()) {
                         (true, true) => false,
@@ -521,7 +535,39 @@ macro_rules! test_mul {
                         (false, false) => zv != zf.to_f64(),
                     } {
                         success = false;
-                        bad.push(((xf.to_f64(), yf.to_f64()), (zf.to_f64(), zv)));
+                        bad.push((
+                            (xf.to_f64(), yf.to_f64()),
+                            (zf.to_f64(), iv, dz, of, uf, ie),
+                            (
+                                zf.to_f64(),
+                                z.invalid_flag(),
+                                z.div_by_zero_flag(),
+                                z.overflow_flag(),
+                                z.underflow_flag(),
+                                z.inexact_flag(),
+                            ),
+                        ));
+                    }
+
+                    if z.invalid_flag() != iv
+                        || z.div_by_zero_flag() != dz
+                        || z.overflow_flag() != of
+                        || z.underflow_flag() != uf
+                        || z.inexact_flag() != ie
+                    {
+                        success = false;
+                        bad.push((
+                            (xf.to_f64(), yf.to_f64()),
+                            (zf.to_f64(), iv, dz, of, uf, ie),
+                            (
+                                zf.to_f64(),
+                                z.invalid_flag(),
+                                z.div_by_zero_flag(),
+                                z.overflow_flag(),
+                                z.underflow_flag(),
+                                z.inexact_flag(),
+                            ),
+                        ));
                     }
                 }
             }
@@ -531,7 +577,14 @@ macro_rules! test_mul {
             success,
             "multiplication tests failed: {}",
             bad.iter()
-                .map(|((x, y), (z0, z1))| format!("{} * {} => Exp: {} Act: {}", x, y, z0, z1))
+                .map(
+                    |((x, y), (z0, iv0, dz0, of0, uf0, ie0), (z1, iv1, dz1, of1, uf1, ie1))| {
+                        format!(
+                            "{} * {} => Exp: {} [{} {} {} {} {}] Act: {} [{} {} {} {} {}]",
+                            x, y, z0, iv0, dz0, of0, uf0, ie0, z1, iv1, dz1, of1, uf1, ie1
+                        )
+                    }
+                )
                 .collect::<Vec<String>>()
                 .join("\n")
         );

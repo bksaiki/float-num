@@ -59,10 +59,14 @@ impl<const E: usize, const N: usize> Float<E, N> {
     ) -> Float<E3, N3> {
         if self.is_nan() {
             // `self` is NaN
-            self.round(ctx)
+            let mut r = self.round(ctx);
+            r.flags.invalid = true;
+            r
         } else if other.is_nan() {
             // `other` is NaN
-            other.round(ctx)
+            let mut r = other.round(ctx);
+            r.flags.invalid = true;
+            r
         } else if self.is_infinity() {
             // `self` is +/- infinity
             let sign = self.sign() != other.sign();
