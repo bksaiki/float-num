@@ -27,6 +27,48 @@ fn rm_to_mpfr(rm: RoundingMode) -> mpfr::rnd_t {
     }
 }
 
+fn mpfr_add(
+    a: &rug::Float,
+    b: &rug::Float,
+    ewidth: usize,
+    prec: usize,
+    rm: RoundingMode,
+) -> (rug::Float, bool, bool, bool, bool, bool) {
+    let mut r = rug::Float::new(prec as u32);
+
+    let mpfr_emax = usize::pow(2, ewidth as u32 - 1) as i64;
+    let mpfr_emin = 4 - (mpfr_emax + prec as i64);
+
+    let (invalid, div_by_zero, overflow, underflow, inexact) = unsafe {
+        let a_mpfr = a.as_raw();
+        let b_mpfr = b.as_raw();
+        let r_mpfr = r.as_raw_mut();
+        let rnd = rm_to_mpfr(rm);
+
+        let emin = mpfr::get_emin();
+        let emax = mpfr::get_emax();
+        mpfr::set_emin(mpfr_emin);
+        mpfr::set_emax(mpfr_emax);
+        mpfr::clear_flags();
+
+        let t = mpfr::add(r_mpfr, a_mpfr, b_mpfr, rnd);
+        mpfr::subnormalize(r_mpfr, t, rnd);
+
+        let invalid = mpfr::nanflag_p() != 0;
+        let div_by_zero = mpfr::divby0_p() != 0;
+        let overflow = mpfr::overflow_p() != 0;
+        let inexact = mpfr::inexflag_p() != 0;
+        let underflow = inexact && mpfr::underflow_p() != 0;
+
+        mpfr::set_emin(emin);
+        mpfr::set_emax(emax);
+
+        (invalid, div_by_zero, overflow, underflow, inexact)
+    };
+
+    (r, invalid, div_by_zero, overflow, underflow, inexact)
+}
+
 fn mpfr_mul(
     a: &rug::Float,
     b: &rug::Float,
@@ -489,6 +531,112 @@ fn round_trivial() {
         assert_eq!(bv, bv2, "fp->fp->fp conversion failed: {} != {}", bv, bv2);
     }
 }
+
+macro_rules! test_add {
+    ( $E1:expr, $N1:expr, $E2:expr, $N2:expr, $E3:expr, $N3:expr ) => {
+        type F1 = Float<$E1, $N1>;
+        type F2 = Float<$E2, $N2>;
+        type F3 = Float<$E3, $N3>;
+
+        let mut success: bool = true;
+        let mut bad: Vec<(
+            (f64, f64),
+            (f64, bool, bool, bool, bool, bool),
+            (f64, bool, bool, bool, bool, bool),
+        )> = vec![];
+        let rms = &[
+            RoundingMode::NearestEven,
+            // RoundingMode::ToPositive,
+            // RoundingMode::ToNegative,
+            // RoundingMode::ToZero,
+            // RoundingMode::AwayZero,
+        ];
+
+        for rm in rms {
+            let ctx = IEEEContext::default().rounding_mode(*rm);
+            for i in 0..u32::pow(2, F1::N as u32) {
+                let mut xv = BitVec::from_element(i);
+                xv.resize(F1::N, false);
+                let x = F1::from(xv.clone());
+                let xf = rug::Float::with_val(53, f64::from(x.clone()));
+
+                for j in 0..u32::pow(2, F2::N as u32) {
+                    let mut yv = BitVec::from_element(j);
+                    yv.resize(F2::N, false);
+                    let y = F2::from(yv.clone());
+                    let yf = rug::Float::with_val(53, f64::from(y.clone()));
+
+                    let z: F3 = x.add(&y, &ctx);
+                    let zv = f64::from(z.clone());
+                    let (zf, iv, dz, of, uf, ie) = mpfr_add(&xf, &yf, F3::E, F3::PREC, *rm);
+
+                    if match (zv.is_nan(), zf.to_f64().is_nan()) {
+                        (true, true) => false,
+                        (true, false) => true,
+                        (false, true) => true,
+                        (false, false) => zv != zf.to_f64(),
+                    } {
+                        success = false;
+                        bad.push((
+                            (xf.to_f64(), yf.to_f64()),
+                            (zf.to_f64(), iv, dz, of, uf, ie),
+                            (
+                                zf.to_f64(),
+                                z.invalid_flag(),
+                                z.div_by_zero_flag(),
+                                z.overflow_flag(),
+                                z.underflow_flag(),
+                                z.inexact_flag(),
+                            ),
+                        ));
+                    }
+
+                    if z.invalid_flag() != iv
+                        || z.div_by_zero_flag() != dz
+                        || z.overflow_flag() != of
+                        || z.underflow_flag() != uf
+                        || z.inexact_flag() != ie
+                    {
+                        success = false;
+                        bad.push((
+                            (xf.to_f64(), yf.to_f64()),
+                            (zf.to_f64(), iv, dz, of, uf, ie),
+                            (
+                                zf.to_f64(),
+                                z.invalid_flag(),
+                                z.div_by_zero_flag(),
+                                z.overflow_flag(),
+                                z.underflow_flag(),
+                                z.inexact_flag(),
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            success,
+            "addition tests failed: {}",
+            bad.iter()
+                .map(
+                    |((x, y), (z0, iv0, dz0, of0, uf0, ie0), (z1, iv1, dz1, of1, uf1, ie1))| {
+                        format!(
+                            "{} * {} => Exp: {} [{} {} {} {} {}] Act: {} [{} {} {} {} {}]",
+                            x, y, z0, iv0, dz0, of0, uf0, ie0, z1, iv1, dz1, of1, uf1, ie1
+                        )
+                    }
+                )
+                .collect::<Vec<String>>()
+                .join("\n")
+        );
+    };
+}
+
+// #[test]
+// fn test_add_2_4_2_4_2_4() {
+//     test_add!(2, 4, 2, 4, 2, 4);
+// }
 
 macro_rules! test_mul {
     ( $E1:expr, $N1:expr, $E2:expr, $N2:expr, $E3:expr, $N3:expr ) => {

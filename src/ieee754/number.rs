@@ -291,6 +291,10 @@ impl<const E: usize, const N: usize> Number for Float<E, N> {
         self.abs_exact().round(ctx)
     }
 
+    fn add(&self, other: &Self, ctx: &Self::Ctx) -> Self {
+        self._add(other, ctx)
+    }
+
     fn mul(&self, other: &Self, ctx: &Self::Ctx) -> Self {
         self._mul(other, ctx)
     }

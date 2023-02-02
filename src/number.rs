@@ -34,6 +34,10 @@ pub trait Number: Clone + Default {
     /// result according to the provided context.
     fn abs(&self, ctx: &Self::Ctx) -> Self;
 
+    /// Adds this `Number` and another, rounding the result
+    /// according to the provided context.
+    fn add(&self, other: &Self, ctx: &Self::Ctx) -> Self;
+
     /// Multiplies this `Number` and another, rounding the result
     /// according to the provided context.
     fn mul(&self, other: &Self, ctx: &Self::Ctx) -> Self;
