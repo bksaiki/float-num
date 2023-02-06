@@ -3,7 +3,8 @@
 */
 
 use std::convert::Infallible;
-use std::ops::AddAssign;
+use num_bigint::BigUint;
+use num_traits::One;
 
 use crate::{ieee754::*, ops::*, Context};
 
@@ -105,9 +106,10 @@ impl<const E: usize, const N: usize> Float<E, N> {
             let diff = c_len - Float::<E2, N2>::PREC;
             exp += diff as i64;
             
-            // If the exponent is too small, we shift off low order bits
-            // until the exponent is the minimum possible value while accumulating
-            // a sticky bit if we lost any information when shifting.
+            // If the exponent is too small, we shift off
+            // low order bits and increment the exponent together until the
+            // exponent is EXPMIN. We need to accumulate a sticky bit if
+            // we lost any information when shifting.
             let mut sticky_bit = if exp < Float::<E2, N2>::EXPMIN {
                 let shift = Float::<E2, N2>::EXPMIN - exp;
                 exp = Float::<E2, N2>::EXPMIN;
@@ -225,13 +227,17 @@ impl<const E: usize, const N: usize> Float<E, N> {
         // We use the sign, rounding mode, LSB of the mantissa, and the two rounding bits.
         let qs_bit = quarter_bit || sticky_bit;
         let increment = Self::round_requires_increment(s, c[0], half_bit, qs_bit, ctx.rm);
+
+        // Increment the mantissa if needed.
+        // If the mantissa has a carry, increment the exponent as well
+        // and set the `carry` bit.
+        let mut carry = false;
         if increment {
             // increment the mantissa
             // possibly need to adjust exponent (the exponent is unbounded)
-            let mut i = bitvec_to_biguint(c);
-            i.add_assign(1_u8);
+            let i = bitvec_to_biguint(c) + BigUint::one();
             let c_ext = biguint_to_bitvec(i, Self::PREC + 1);
-            let carry = c_ext[Self::PREC];
+            carry = c_ext[Self::PREC];
 
             c = c_ext[0..Self::PREC].into();
             if carry {
@@ -253,7 +259,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
                         overflow: true,
                         underflow: false,
                         inexact: true,
-                        carry: increment,
+                        carry: carry,
                     },
                 };
             } else {
@@ -265,7 +271,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
                         overflow: true,
                         underflow: false,
                         inexact: true,
-                        carry: increment,
+                        carry: carry,
                     },
                 };
             }
@@ -338,7 +344,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             overflow: false,
             underflow: underflow && inexact,
             inexact,
-            carry: increment,
+            carry: carry,
         };
 
         Self { num, flags }

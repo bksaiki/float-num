@@ -411,7 +411,7 @@ fn classify() {
     ];
     let tests = [
         (
-            Double::nan(false, false, bitvec![0; Double::NAN_PAYLOAD_SIZE]),
+            Double::nan(false, true, bitvec![0; Double::NAN_PAYLOAD_SIZE]),
             "nan",
             0,
         ),
