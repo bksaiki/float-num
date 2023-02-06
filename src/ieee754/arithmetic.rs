@@ -53,9 +53,20 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
+    /// Negates this `Float` rounding the result according to the rounding context.
+    pub fn neg<const E2: usize, const N2: usize>(&self, ctx: &IEEEContext) -> Float<E2, N2> {
+        self.neg_exact().round(ctx)
+    }
+
+    /// Returns the absolute value of this `Float`,
+    /// rounding the result according to the rounding context.
+    pub fn abs<const E2: usize, const N2: usize>(&self, ctx: &IEEEContext) -> Float<E2, N2> {
+        self.abs_exact().round(ctx)
+    }
+
     /// Adds this `Float` with another, rounding the result to the format
     /// specified by `Float<E3, N3>` and rounding mode `rm`.
-    pub(crate) fn _add<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
+    pub fn add<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
         &self,
         other: &Float<E2, N2>,
         ctx: &IEEEContext,
@@ -109,16 +120,26 @@ impl<const E: usize, const N: usize> Float<E, N> {
             self.round(ctx)
         } else {
             // `self` and `other` are both finite
-            let (s1, exp1, c1) = self.decompose_nonzero_finite();
-            let (s2, exp2, c2) = other.decompose_nonzero_finite();
+            // let (s1, exp1, c1) = self.decompose_nonzero_finite();
+            // let (s2, exp2, c2) = other.decompose_nonzero_finite();
 
-            Float::<E3, N3>::zero(false)
+            todo!()
         }
+    }
+
+    /// Subtracts this `Float` with another, rounding the result to the format
+    /// specified by `Float<E3, N3>` and rounding mode `rm`.
+    pub fn sub<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
+        &self,
+        other: &Float<E2, N2>,
+        ctx: &IEEEContext,
+    ) -> Float<E3, N3> {
+        self.add(&other.neg_exact(), ctx)
     }
 
     /// Multiplies this `Float` with another, rounding the result to the format
     /// specified by `Float<E3, N3>` and rounding mode `rm`.
-    pub(crate) fn _mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
+    pub fn mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
         &self,
         other: &Float<E2, N2>,
         ctx: &IEEEContext,

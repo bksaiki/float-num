@@ -2,7 +2,7 @@
     Definition of `Float<E, N>` struct
 */
 
-use crate::{ieee754::*, ops::Round};
+use crate::{ieee754::*};
 
 macro_rules! bitvec {
     [ $($t:tt)* ] => {
@@ -287,21 +287,5 @@ impl<const E: usize, const N: usize> Number for Float<E, N> {
 
     fn is_rational(&self) -> bool {
         true
-    }
-
-    fn neg(&self, ctx: &Self::Ctx) -> Self {
-        self.neg_exact().round(ctx)
-    }
-
-    fn abs(&self, ctx: &Self::Ctx) -> Self {
-        self.abs_exact().round(ctx)
-    }
-
-    fn add(&self, other: &Self, ctx: &Self::Ctx) -> Self {
-        self._add(other, ctx)
-    }
-
-    fn mul(&self, other: &Self, ctx: &Self::Ctx) -> Self {
-        self._mul(other, ctx)
     }
 }

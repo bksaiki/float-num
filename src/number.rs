@@ -25,22 +25,6 @@ pub trait Number: Clone + Default {
 
     /// Returns true if this `Number` encodes a rational number.
     fn is_rational(&self) -> bool;
-
-    /// Negates this `Number`, rounding the result according
-    /// to the provided context.
-    fn neg(&self, ctx: &Self::Ctx) -> Self;
-
-    /// Takes the absolute value for `Number`, rounding the
-    /// result according to the provided context.
-    fn abs(&self, ctx: &Self::Ctx) -> Self;
-
-    /// Adds this `Number` and another, rounding the result
-    /// according to the provided context.
-    fn add(&self, other: &Self, ctx: &Self::Ctx) -> Self;
-
-    /// Multiplies this `Number` and another, rounding the result
-    /// according to the provided context.
-    fn mul(&self, other: &Self, ctx: &Self::Ctx) -> Self;
 }
 
 /// A specification for rounding behavior.
