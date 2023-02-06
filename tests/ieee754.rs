@@ -1,3 +1,4 @@
+use bitvec::macros::internal::funty::Floating;
 use bitvec::prelude::Lsb0;
 use float_sim::ieee754::*;
 use float_sim::ops::*;
@@ -757,9 +758,9 @@ fn test_mul_4_8_4_8_4_8() {
 #[test]
 fn sandbox() {
     let ctx = IEEEContext::default();
-    let a = Float::<3, 6>::from(2.5);
-    let b = Float::<3, 6>::from(2.5);
-    let c: Float<3, 6> = a.mul(&b, &ctx);
+    let a = Float::<2, 4>::from(0.0);
+    let b = Float::<2, 4>::from(f64::INFINITY);
+    let c: Float<2, 4> = a.mul(&b, &ctx);
 
     println!(
         "{} * {} = {}",
@@ -767,5 +768,11 @@ fn sandbox() {
         BitVec::from(b.clone()),
         BitVec::from(c.clone())
     );
-    println!("{} * {} = {}", f64::from(a), f64::from(b), f64::from(c));
+
+    let fa = f64::from(a);
+    let fb = f64::from(b);
+    let fc = f64::from(c.clone());
+
+    println!("{} * {} = {}", fa, fb, fc);
+    println!("{} {} {}", fc.is_nan(), fc.to_bits(), c.is_nan());
 }

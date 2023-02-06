@@ -131,6 +131,12 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Self::NAN_PAYLOAD_SIZE,
             bv.len()
         );
+
+        assert!(
+            signaling || bv.any(),
+            "at least one mantissa bit must be high to encode a NaN",
+        );
+
         Self {
             num: FloatNum::Nan(sign, signaling, bv),
             flags: Exceptions::default(),

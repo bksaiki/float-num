@@ -14,6 +14,17 @@ macro_rules! bitvec {
 
 // Rounding (casts)
 impl<const E: usize, const N: usize> Float<E, N> {
+    // Decomposes a non-zero finite numbers into the triple (s, e, c)
+    // where `s` is the sign bit, `e` is the exponent, and `c` is
+    // the mantissa of an integer.
+    fn decompose_nonzero_finite(&self) -> (bool, i64, &BitVec) {
+        match &self.num {
+            FloatNum::Subnormal(s, c) => (*s, Self::EXPMIN, c),
+            FloatNum::Normal(s, exp, c) => (*s, *exp, c),
+            _ => panic!("called on a non-finite float"),
+        }
+    }
+
     /// Negates this `Float` without rounding.
     /// Since this representation is symmetric around 0,
     /// we just negate the sign bit.
@@ -98,17 +109,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
             Float::<E3, N3>::zero(sign)
         } else {
             // `self` and `other` are both finite
-            let (s1, exp1, c1) = match &self.num {
-                FloatNum::Subnormal(s, c) => (*s, Self::EXPMIN, c),
-                FloatNum::Normal(s, exp, c) => (*s, *exp, c),
-                _ => panic!("called on a non-finite float"),
-            };
-
-            let (s2, exp2, c2) = match &other.num {
-                FloatNum::Subnormal(s, c) => (*s, Float::<E2, N2>::EXPMIN, c),
-                FloatNum::Normal(s, exp, c) => (*s, *exp, c),
-                _ => panic!("called on a non-finite float"),
-            };
+            let (s1, exp1, c1) = self.decompose_nonzero_finite();
+            let (s2, exp2, c2) = other.decompose_nonzero_finite();
 
             let u1 = bitvec_to_biguint(c1.clone());
             let u2 = bitvec_to_biguint(c2.clone());
@@ -176,17 +178,8 @@ impl<const E: usize, const N: usize> Float<E, N> {
             self.round(ctx)
         } else {
             // `self` and `other` are both finite
-            let (s1, exp1, c1) = match &self.num {
-                FloatNum::Subnormal(s, c) => (*s, Self::EXPMIN, c),
-                FloatNum::Normal(s, exp, c) => (*s, *exp, c),
-                _ => panic!("called on a non-finite float"),
-            };
-
-            let (s2, exp2, c2) = match &other.num {
-                FloatNum::Subnormal(s, c) => (*s, Float::<E2, N2>::EXPMIN, c),
-                FloatNum::Normal(s, exp, c) => (*s, *exp, c),
-                _ => panic!("called on a non-finite float"),
-            };
+            let (s1, exp1, c1) = self.decompose_nonzero_finite();
+            let (s2, exp2, c2) = other.decompose_nonzero_finite();
 
             Float::<E3, N3>::zero(false)
         }
