@@ -1,4 +1,3 @@
-use bitvec::macros::internal::funty::Floating;
 use bitvec::prelude::Lsb0;
 use float_sim::ieee754::*;
 use float_sim::ops::*;

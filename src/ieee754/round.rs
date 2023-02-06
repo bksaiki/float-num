@@ -101,35 +101,38 @@ impl<const E: usize, const N: usize> Float<E, N> {
                 exp -= padding as i64;
             }
 
+            // Compute required mantissa size and adjust exponent accordingly.
+            let diff = c_len - Float::<E2, N2>::PREC;
+            exp += diff as i64;
+            
+            // If the exponent is too small, we shift off low order bits
+            // until the exponent is the minimum possible value while accumulating
+            // a sticky bit if we lost any information when shifting.
+            let mut sticky_bit = if exp < Float::<E2, N2>::EXPMIN {
+                let shift = Float::<E2, N2>::EXPMIN - exp;
+                exp = Float::<E2, N2>::EXPMIN;
+                shift_left_accum(&mut c, shift as usize)
+            } else {
+                false
+            };
+
             // Construct the new mantissa with three rounding bits
             //  `half`: unrounded value is at least half way to the next representable float
             //  `quarter`: unrounded value is either 1/4 or 3/4 of the way
             //   to the next representable float (depending on `half`)
             //  `sticky`: unrounded value is slightly above 0, 1/4, 1/2, 3/4 of the way
             //   to the next representable float but below the next regime
-            let diff = c_len - Float::<E2, N2>::PREC;
             let (low, high) = c.split_at(diff);
             let low_len = low.len();
-            exp += diff as i64;
 
-            // `c_new` - highest `Float::<E2, N2>::PREC` bits
-            // `half_bit` - MSB of the low part
-            // `quarter_bit` - next bit of the low part
-            // `sticky_bit` - apply OR to the rest of the low part
-            let mut c_new = BitVec::from(high);
-            let mut half_bit = low[low_len - 1];
-            let mut quarter_bit = low[low_len - 2];
-            let mut sticky_bit = low[..low_len - 2].any();
-
-            // adjust if the exponent is too small
-            // TODO: this is dumb
-            while exp < Float::<E2, N2>::EXPMIN {
-                sticky_bit |= quarter_bit;
-                quarter_bit = half_bit;
-                half_bit = c_new[0];
-                c_new.shift_left(1);
-                exp += 1;
-            }
+            // `c_new` - highest `Float::<E2, N2>::PREC` bits,
+            // `half_bit` - MSB of the low part,
+            // `quarter_bit` - next bit of the low part,
+            // `sticky_bit` - apply OR to the rest of the low part and the previous sticky bit.
+            let c_new = BitVec::from(high);
+            let half_bit = low[low_len - 1];
+            let quarter_bit = low[low_len - 2];
+            sticky_bit |= low[..(low_len - 2)].any();
 
             // finish the rounding process with all the rounding information
             Float::<E2, N2>::round_finalize(s, exp, c_new, half_bit, quarter_bit, sticky_bit, ctx)

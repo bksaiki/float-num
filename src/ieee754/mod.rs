@@ -1,35 +1,16 @@
-use num_bigint::BigUint;
-use std::ops::ShlAssign;
-
 use crate::Number;
 
 mod arithmetic;
 mod convert;
 mod number;
 mod round;
+mod util;
 
+use self::util::*;
+
+// Types from the Bitvec crate
 pub(self) type BitVec = bitvec::prelude::BitVec<u32, Lsb0>;
 pub(self) type Lsb0 = bitvec::prelude::Lsb0;
-
-// Converts a `BitVec` to `BitUint`
-// TODO: this is really dumb
-pub(self) fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
-    let mut i = BigUint::default();
-    bv.reverse();
-    for b in bv {
-        i.shl_assign(1);
-        i.set_bit(0, b);
-    }
-    i
-}
-
-// Converts a `BitUint` to `BitVec`
-// TODO: this is really dumb
-pub(self) fn biguint_to_bitvec(i: BigUint, width: usize) -> BitVec {
-    let mut bv = BitVec::from_vec(i.to_u32_digits());
-    bv.resize(width, false);
-    bv
-}
 
 /// Rounding direction
 ///

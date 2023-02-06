@@ -2,15 +2,7 @@
     Arithmetic
 */
 
-use crate::{ieee754::*, ops::*};
-
-macro_rules! bitvec {
-    [ $($t:tt)* ] => {
-        {
-            bitvec::bitvec![u32, Lsb0; $($t)*]
-        }
-    };
-}
+use crate::{ieee754::*, ops::*, bitvec};
 
 // Rounding (casts)
 impl<const E: usize, const N: usize> Float<E, N> {
@@ -61,68 +53,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
         }
     }
 
-    /// Multiplies this `Float` with another rounding it to the format
-    /// specified by `Float<E3, N3>` and rounding mode `rm`.
-    pub(crate) fn _mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
-        &self,
-        other: &Float<E2, N2>,
-        ctx: &IEEEContext,
-    ) -> Float<E3, N3> {
-        if self.is_nan() {
-            // `self` is NaN
-            let mut r = self.round(ctx);
-            r.flags.invalid = true;
-            r
-        } else if other.is_nan() {
-            // `other` is NaN
-            let mut r = other.round(ctx);
-            r.flags.invalid = true;
-            r
-        } else if self.is_infinity() {
-            // `self` is +/- infinity
-            let sign = self.sign() != other.sign();
-            if other.is_zero() {
-                // `other` is +/- 0 => invalid
-                let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
-                let mut r = Float::<E3, N3>::nan(sign, true, payload);
-                r.flags.invalid = true;
-                r
-            } else {
-                // `other` is either finite or +/- infinity
-                Float::<E3, N3>::infinity(sign)
-            }
-        } else if other.is_infinity() {
-            // `other` is +/- infinity, `self` is either finite or +/- infinity
-            let sign = self.sign() != other.sign();
-            if self.is_zero() {
-                // `self` is +/- 0 => invalid
-                let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
-                let mut r = Float::<E3, N3>::nan(sign, true, payload);
-                r.flags.invalid = true;
-                r
-            } else {
-                Float::<E3, N3>::infinity(sign)
-            }
-        } else if self.is_zero() || other.is_zero() {
-            // either `self` or `other` is +/- 0
-            let sign = self.sign() != other.sign();
-            Float::<E3, N3>::zero(sign)
-        } else {
-            // `self` and `other` are both finite
-            let (s1, exp1, c1) = self.decompose_nonzero_finite();
-            let (s2, exp2, c2) = other.decompose_nonzero_finite();
-
-            let u1 = bitvec_to_biguint(c1.clone());
-            let u2 = bitvec_to_biguint(c2.clone());
-
-            let s = s1 != s2;
-            let exp = exp1 + exp2;
-            let c = biguint_to_bitvec(u1 * u2, c1.len() + c2.len());
-            Float::<E3, N3>::round_finite(s, exp, c, ctx)
-        }
-    }
-
-    /// Multiplies this `Float` with another rounding it to the format
+    /// Adds this `Float` with another, rounding the result to the format
     /// specified by `Float<E3, N3>` and rounding mode `rm`.
     pub(crate) fn _add<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
         &self,
@@ -182,6 +113,67 @@ impl<const E: usize, const N: usize> Float<E, N> {
             let (s2, exp2, c2) = other.decompose_nonzero_finite();
 
             Float::<E3, N3>::zero(false)
+        }
+    }
+
+    /// Multiplies this `Float` with another, rounding the result to the format
+    /// specified by `Float<E3, N3>` and rounding mode `rm`.
+    pub(crate) fn _mul<const E2: usize, const N2: usize, const E3: usize, const N3: usize>(
+        &self,
+        other: &Float<E2, N2>,
+        ctx: &IEEEContext,
+    ) -> Float<E3, N3> {
+        if self.is_nan() {
+            // `self` is NaN
+            let mut r = self.round(ctx);
+            r.flags.invalid = true;
+            r
+        } else if other.is_nan() {
+            // `other` is NaN
+            let mut r = other.round(ctx);
+            r.flags.invalid = true;
+            r
+        } else if self.is_infinity() {
+            // `self` is +/- infinity
+            let sign = self.sign() != other.sign();
+            if other.is_zero() {
+                // `other` is +/- 0 => invalid
+                let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
+                let mut r = Float::<E3, N3>::nan(sign, true, payload);
+                r.flags.invalid = true;
+                r
+            } else {
+                // `other` is either finite or +/- infinity
+                Float::<E3, N3>::infinity(sign)
+            }
+        } else if other.is_infinity() {
+            // `other` is +/- infinity, `self` is either finite or +/- infinity
+            let sign = self.sign() != other.sign();
+            if self.is_zero() {
+                // `self` is +/- 0 => invalid
+                let payload = bitvec![0; Float::<E3, N3>::NAN_PAYLOAD_SIZE];
+                let mut r = Float::<E3, N3>::nan(sign, true, payload);
+                r.flags.invalid = true;
+                r
+            } else {
+                Float::<E3, N3>::infinity(sign)
+            }
+        } else if self.is_zero() || other.is_zero() {
+            // either `self` or `other` is +/- 0
+            let sign = self.sign() != other.sign();
+            Float::<E3, N3>::zero(sign)
+        } else {
+            // `self` and `other` are both finite
+            let (s1, exp1, c1) = self.decompose_nonzero_finite();
+            let (s2, exp2, c2) = other.decompose_nonzero_finite();
+
+            let u1 = bitvec_to_biguint(c1.clone());
+            let u2 = bitvec_to_biguint(c2.clone());
+
+            let s = s1 != s2;
+            let exp = exp1 + exp2;
+            let c = biguint_to_bitvec(u1 * u2, c1.len() + c2.len());
+            Float::<E3, N3>::round_finite(s, exp, c, ctx)
         }
     }
 }
