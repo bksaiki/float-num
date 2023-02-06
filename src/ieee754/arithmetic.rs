@@ -187,13 +187,14 @@ impl<const E: usize, const N: usize> Float<E, N> {
             // `self` and `other` are both finite
             let (s1, exp1, c1) = self.decompose_nonzero_finite();
             let (s2, exp2, c2) = other.decompose_nonzero_finite();
+            let c_len = c1.len() + c2.len();
 
-            let u1 = bitvec_to_biguint(c1.clone());
-            let u2 = bitvec_to_biguint(c2.clone());
+            let u1 = bitvec_to_biguint(c1);
+            let u2 = bitvec_to_biguint(c2);
 
             let s = s1 != s2;
             let exp = exp1 + exp2;
-            let c = biguint_to_bitvec(u1 * u2, c1.len() + c2.len());
+            let c = biguint_to_bitvec(u1 * u2, c_len);
             Float::<E3, N3>::round_finite(s, exp, c, ctx)
         }
     }

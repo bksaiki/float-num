@@ -235,7 +235,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
         if increment {
             // increment the mantissa
             // possibly need to adjust exponent (the exponent is unbounded)
-            let i = bitvec_to_biguint(c) + BigUint::one();
+            let i = bitvec_to_biguint(&c) + BigUint::one();
             let c_ext = biguint_to_bitvec(i, Self::PREC + 1);
             carry = c_ext[Self::PREC];
 

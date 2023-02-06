@@ -105,7 +105,7 @@ impl<const E: usize, const N: usize> From<BitVec> for Float<E, N> {
 
         // split fields
         let (s, e, mut m) = Self::split_packed(&bv);
-        let mut exp = bitvec_to_biguint(e).to_i64().unwrap() - Self::BIAS;
+        let mut exp = bitvec_to_biguint(&e).to_i64().unwrap() - Self::BIAS;
 
         // branch on exponent
         if exp > Self::EMAX {

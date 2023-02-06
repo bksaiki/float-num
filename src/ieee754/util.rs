@@ -5,12 +5,11 @@ use super::*;
 
 // Converts a `BitVec` to `BitUint`
 // TODO: this is really dumb
-pub(crate) fn bitvec_to_biguint(mut bv: BitVec) -> BigUint {
+pub(crate) fn bitvec_to_biguint(bv: &BitVec) -> BigUint {
     let mut i = BigUint::default();
-    bv.reverse();
-    for b in bv {
+    for b in bv.iter().rev() {
         i.shl_assign(1);
-        i.set_bit(0, b);
+        i.set_bit(0, *b);
     }
     i
 }
