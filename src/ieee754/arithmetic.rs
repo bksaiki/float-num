@@ -2,7 +2,7 @@
     Arithmetic
 */
 
-use crate::{ieee754::*, ops::*, bitvec};
+use crate::{bitvec, ieee754::*, ops::*};
 
 // Rounding (casts)
 impl<const E: usize, const N: usize> Float<E, N> {

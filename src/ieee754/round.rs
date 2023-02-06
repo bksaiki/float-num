@@ -2,9 +2,9 @@
     Rounding
 */
 
-use std::convert::Infallible;
 use num_bigint::BigUint;
 use num_traits::One;
+use std::convert::Infallible;
 
 use crate::{ieee754::*, ops::*, Context};
 
@@ -105,7 +105,7 @@ impl<const E: usize, const N: usize> Float<E, N> {
             // Compute required mantissa size and adjust exponent accordingly.
             let diff = c_len - Float::<E2, N2>::PREC;
             exp += diff as i64;
-            
+
             // If the exponent is too small, we shift off
             // low order bits and increment the exponent together until the
             // exponent is EXPMIN. We need to accumulate a sticky bit if
@@ -248,106 +248,89 @@ impl<const E: usize, const N: usize> Float<E, N> {
 
         // Next, we check if overflow occured and alter the result if it has.
         if exp > Self::EXPMAX {
-            // overflow has occured
-            // need to check which way we round
-            if Self::overflow_to_infinity(s, ctx.rm) {
-                return Self {
-                    num: FloatNum::Infinity(s),
-                    flags: Exceptions {
-                        invalid: false,
-                        div_by_zero: false,
-                        overflow: true,
-                        underflow: false,
-                        inexact: true,
-                        carry: carry,
-                    },
-                };
+            // overflow has occured, but the numerical value
+            // depends on which way we round.
+            let flags = Exceptions::default()
+                .with_overflow(true)
+                .with_inexact(true)
+                .with_carry(carry);
+            let num = if Self::overflow_to_infinity(s, ctx.rm) {
+                FloatNum::Infinity(s)
             } else {
-                return Self {
-                    num: FloatNum::Normal(s, Self::EXPMAX, bitvec![1; Self::PREC]),
-                    flags: Exceptions {
-                        invalid: false,
-                        div_by_zero: false,
-                        overflow: true,
-                        underflow: false,
-                        inexact: true,
-                        carry: carry,
-                    },
-                };
-            }
-        }
+                FloatNum::Normal(s, Self::EXPMAX, bitvec![1; Self::PREC])
+            };
 
-        // Next, we check if underflow may have occured
-        // The underflow exception is only raised if the inexact exception is also raised.
-        let underflow = if exp > Self::EXPMIN {
-            // definitely larger than MIN_NORM
-            false
-        } else if c[Self::M] {
-            // leading 1 detected
-            if increment && c[..Self::M].not_any() {
-                // exactly MIN_NORM: need to check a few things
-                match ctx.rm.direction(s) {
-                    // only if we were less than 3/4 of the way to +/-MIN_NORM
-                    (true, _) => !half_bit || !quarter_bit,
-                    // the result was exactly +/-MIN_NORM so we shouldn't be here
-                    (_, RoundingDirection::ToZero) => panic!("unreachable"),
-                    // only if we were less than or equal to 1/2 or the way to +/- MIN_NORM
-                    (_, RoundingDirection::AwayZero) => !half_bit || !qs_bit,
-                    // only if we were more than 1/2 of the way to +/- MIN_NORM
-                    (_, RoundingDirection::ToEven) => half_bit && qs_bit,
-                    // the result was exactly +/-MIN_NORM so we shouldn't be here
-                    (_, RoundingDirection::ToOdd) => panic!("unreachable"),
-                }
-            } else {
+            Self { num, flags }
+        } else {
+            // No underflow.
+            // Next, we check if underflow may have occured
+            // The underflow exception is only raised if the inexact exception is also raised.
+            let underflow = if exp > Self::EXPMIN {
                 // definitely larger than MIN_NORM
                 false
-            }
-        } else {
-            // definitely a subnormal result
-            true
-        };
-
-        // The inexact flag is just if any of the rounding bits are high
-        let inexact = half_bit || quarter_bit || sticky_bit;
-
-        // Some sanity checking
-        assert_eq!(
-            c.len(),
-            Self::PREC,
-            "unexpected mantissa width after rounding: {}, expected {}",
-            c.len(),
-            Self::PREC
-        );
-        assert!(
-            (exp >= Self::EXPMIN) && (exp <= Self::EXPMAX),
-            "unexpected exponent after rounding: {} [{}, {}]",
-            exp,
-            Self::EXPMIN,
-            Self::EXPMAX
-        );
-
-        // construct the number
-        let num = if underflow {
-            if c.not_any() {
-                FloatNum::Zero(s)
+            } else if c[Self::M] {
+                // leading 1 detected
+                if increment && c[..Self::M].not_any() {
+                    // exactly MIN_NORM: need to check a few things
+                    match ctx.rm.direction(s) {
+                        // only if we were less than 3/4 of the way to +/-MIN_NORM
+                        (true, _) => !half_bit || !quarter_bit,
+                        // the result was exactly +/-MIN_NORM so we shouldn't be here
+                        (_, RoundingDirection::ToZero) => panic!("unreachable"),
+                        // only if we were less than or equal to 1/2 or the way to +/- MIN_NORM
+                        (_, RoundingDirection::AwayZero) => !half_bit || !qs_bit,
+                        // only if we were more than 1/2 of the way to +/- MIN_NORM
+                        (_, RoundingDirection::ToEven) => half_bit && qs_bit,
+                        // the result was exactly +/-MIN_NORM so we shouldn't be here
+                        (_, RoundingDirection::ToOdd) => panic!("unreachable"),
+                    }
+                } else {
+                    // definitely larger than MIN_NORM
+                    false
+                }
             } else {
-                FloatNum::Subnormal(s, c)
-            }
-        } else {
-            FloatNum::Normal(s, exp, c)
-        };
+                // definitely a subnormal result
+                true
+            };
 
-        // set the exception flags
-        let flags = Exceptions {
-            invalid: false,
-            div_by_zero: false,
-            overflow: false,
-            underflow: underflow && inexact,
-            inexact,
-            carry: carry,
-        };
+            // The inexact flag is just if any of the rounding bits are high
+            let inexact = half_bit || quarter_bit || sticky_bit;
 
-        Self { num, flags }
+            // Some sanity checking
+            assert_eq!(
+                c.len(),
+                Self::PREC,
+                "unexpected mantissa width after rounding: {}, expected {}",
+                c.len(),
+                Self::PREC
+            );
+            assert!(
+                (exp >= Self::EXPMIN) && (exp <= Self::EXPMAX),
+                "unexpected exponent after rounding: {} [{}, {}]",
+                exp,
+                Self::EXPMIN,
+                Self::EXPMAX
+            );
+
+            // construct the number
+            let num = if underflow {
+                if c.not_any() {
+                    FloatNum::Zero(s)
+                } else {
+                    FloatNum::Subnormal(s, c)
+                }
+            } else {
+                FloatNum::Normal(s, exp, c)
+            };
+
+            // set the exception flags
+            let flags = Exceptions::default()
+                .with_underflow(underflow && inexact)
+                .with_inexact(inexact)
+                .with_carry(carry);
+
+            Self { num, flags }
+        }
     }
 }
 

@@ -2,6 +2,7 @@ use crate::Number;
 
 mod arithmetic;
 mod convert;
+mod exceptions;
 mod number;
 mod round;
 mod util;
